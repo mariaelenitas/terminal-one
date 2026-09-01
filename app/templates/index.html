@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal One | Your Journey Starts Here</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body id="top">
+    <header class="topbar">
+        <div class="brand">
+            <div class="terminal-sign">
+                <span class="arrow">➜</span>
+                <span class="terminal-number">1</span>
+            </div>
+            <div>
+                <h1>TERMINAL ONE</h1>
+                <p>YOUR JOURNEY STARTS HERE</p>
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input
+                id="product-search"
+                type="text"
+                placeholder="Search for travel essentials..."
+                autocomplete="off"
+            >
+            <span>⌕</span>
+        </div>
+
+        <div class="account-area">
+            <span>♙</span>
+            <span id="account-user-text">Sign In / Register</span>
+            <button id="cart-button" class="cart-button" type="button" aria-label="Open cart">
+                <span class="cart-icon">🛒</span>
+                <span>Cart</span>
+                <span class="cart-count" id="cart-count">0</span>
+            </button>
+        </div>
+    </header>
+
+    <nav class="main-nav">
+        <a href="#top" class="active">HOME</a>
+        <a href="#products">SHOP</a>
+        <a href="#categories">CATEGORIES</a>
+        <a href="#" id="nav-best-deals">BEST DEALS</a>
+        <a href="#" id="nav-my-orders">MY ORDERS</a>
+        <a href="#about">ABOUT US</a>
+        <a href="#contact">CONTACT</a>
+    </nav>
+
+    <main>
+        <section class="hero">
+            <div class="flight-board">
+                <div class="board-section">
+                    <div class="board-title">✈ DEPARTURES</div>
+                    <div class="board-header">
+                        <span>TIME</span>
+                        <span>DESTINATION</span>
+                        <span>FLIGHT</span>
+                        <span>GATE</span>
+                        <span>STATUS</span>
+                    </div>
+                    <div class="board-row">
+                        <span>18:30</span>
+                        <span>LONDON (LHR)</span>
+                        <span>BA247</span>
+                        <span>A12</span>
+                        <span class="on-time">ON TIME</span>
+                    </div>
+                    <div class="board-row">
+                        <span>18:45</span>
+                        <span>NEW YORK (JFK)</span>
+                        <span>AA100</span>
+                        <span>B07</span>
+                        <span class="boarding">BOARDING</span>
+                    </div>
+                    <div class="board-row">
+                        <span>19:05</span>
+                        <span>PARIS (CDG)</span>
+                        <span>AF188</span>
+                        <span>A03</span>
+                        <span class="on-time">ON TIME</span>
+                    </div>
+                    <div class="board-row">
+                        <span>19:20</span>
+                        <span>DUBAI (DXB)</span>
+                        <span>EK202</span>
+                        <span>C15</span>
+                        <span class="delayed">DELAYED</span>
+                    </div>
+                </div>
+
+                <div class="board-section">
+                    <div class="board-title">✈ ARRIVALS</div>
+                    <div class="board-header">
+                        <span>TIME</span>
+                        <span>ORIGIN</span>
+                        <span>FLIGHT</span>
+                        <span>GATE</span>
+                        <span>STATUS</span>
+                    </div>
+                    <div class="board-row">
+                        <span>18:25</span>
+                        <span>FRANKFURT (FRA)</span>
+                        <span>LH123</span>
+                        <span>A01</span>
+                        <span class="on-time">LANDED</span>
+                    </div>
+                    <div class="board-row">
+                        <span>18:40</span>
+                        <span>AMSTERDAM (AMS)</span>
+                        <span>KL564</span>
+                        <span>B09</span>
+                        <span class="on-time">LANDED</span>
+                    </div>
+                    <div class="board-row">
+                        <span>19:00</span>
+                        <span>MADRID (MAD)</span>
+                        <span>IB311</span>
+                        <span>A05</span>
+                        <span class="on-time">ON TIME</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hero-content">
+                <p class="eyebrow">PREMIUM TRAVEL ESSENTIALS</p>
+                <h2>DESIGNED FOR<br>THE JOURNEY.</h2>
+                <p class="hero-description">
+                    Carefully selected products to make every trip
+                    more comfortable, efficient and unforgettable.
+                </p>
+                <a href="#products" class="primary-button">
+                    EXPLORE PRODUCTS
+                    <span>›</span>
+                </a>
+            </div>
+        </section>
+
+        <section class="travel-info">
+            <div class="travel-info-item">
+                <div class="info-icon">⌖</div>
+                <div>
+                    <span class="info-label">CURRENT LOCATION</span>
+                    <strong id="location">Detecting...</strong>
+                </div>
+            </div>
+
+            <div class="travel-info-item">
+                <div class="info-icon">☀</div>
+                <div>
+                    <span class="info-label">WEATHER</span>
+                    <strong id="weather">Loading...</strong>
+                </div>
+            </div>
+
+            <div class="travel-info-item">
+                <div class="info-icon">◷</div>
+                <div>
+                    <span class="info-label">LOCAL TIME</span>
+                    <strong id="local-time">--:--</strong>
+                </div>
+            </div>
+
+            <div class="travel-info-item">
+                <div class="info-icon">✈</div>
+                <div>
+                    <span class="info-label">TIME TO TAKEOFF</span>
+                    <strong>Your journey starts now.</strong>
+                </div>
+            </div>
+        </section>
+
+        <section class="categories-section" id="categories">
+            <div class="section-title">
+                <span></span>
+                <h3>SHOP BY CATEGORY</h3>
+                <span></span>
+            </div>
+
+            <div class="categories-grid" id="categories-container">
+                <div class="loading-products">Loading categories...</div>
+            </div>
+        </section>
+
+        <section class="products-section" id="products">
+            <div class="products-heading">
+                <h3 id="products-title">TRAVEL ESSENTIALS</h3>
+                <a href="#products" id="view-all-products">VIEW ALL PRODUCTS ›</a>
+            </div>
+
+            <div class="products-grid" id="products-container">
+                <div class="loading-products">Loading products...</div>
+            </div>
+        </section>
+
+        <section class="about-section terminal-content-section" id="about">
+            <div class="section-title">
+                <span></span>
+                <h3>ABOUT TERMINAL ONE</h3>
+                <span></span>
+            </div>
+
+            <div class="about-layout">
+                <div class="about-copy">
+                    <p class="eyebrow">YOUR JOURNEY STARTS HERE</p>
+                    <h2>TRAVEL BETTER.<br>GO FURTHER.</h2>
+                    <p>
+                        Terminal One was created for travellers who value design,
+                        practicality and a smoother journey. Our collection brings
+                        together carefully selected travel essentials for airports,
+                        business trips, weekend escapes and long-haul adventures.
+                    </p>
+                    <p>
+                        From smart accessories to comfort-focused products, every
+                        item is chosen with one goal in mind: helping you travel with
+                        more confidence, organization and style.
+                    </p>
+                </div>
+
+                <div class="about-values">
+                    <article>
+                        <strong>01</strong>
+                        <h4>CURATED FOR TRAVEL</h4>
+                        <p>Useful products selected for real journeys and real travellers.</p>
+                    </article>
+                    <article>
+                        <strong>02</strong>
+                        <h4>PREMIUM BY DESIGN</h4>
+                        <p>Clean aesthetics, practical details and a consistent travel-first identity.</p>
+                    </article>
+                    <article>
+                        <strong>03</strong>
+                        <h4>READY FOR TAKEOFF</h4>
+                        <p>Essentials designed to make packing, transit and arrival easier.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="contact-section terminal-content-section" id="contact">
+            <div class="section-title">
+                <span></span>
+                <h3>CONTACT</h3>
+                <span></span>
+            </div>
+
+            <div class="contact-layout">
+                <div class="contact-copy">
+                    <p class="eyebrow">TERMINAL ONE SUPPORT</p>
+                    <h2>HOW CAN WE HELP?</h2>
+                    <p>
+                        Questions about a product, an order or your next journey?
+                        Send us a message and our support team will be ready to help.
+                    </p>
+                    <div class="contact-note">
+                        <strong>SUPPORT HOURS</strong>
+                        <span>Monday–Friday · 09:00–18:00</span>
+                    </div>
+                </div>
+
+                <form id="contact-form" class="contact-form">
+                    <div id="contact-message" class="terminal-message"></div>
+                    <div class="terminal-form-row">
+                        <div class="terminal-form-group">
+                            <label for="contact-name">NAME</label>
+                            <input id="contact-name" type="text" required>
+                        </div>
+                        <div class="terminal-form-group">
+                            <label for="contact-email">EMAIL</label>
+                            <input id="contact-email" type="email" required>
+                        </div>
+                    </div>
+                    <div class="terminal-form-group">
+                        <label for="contact-subject">SUBJECT</label>
+                        <input id="contact-subject" type="text" required>
+                    </div>
+                    <div class="terminal-form-group">
+                        <label for="contact-body">MESSAGE</label>
+                        <textarea id="contact-body" required></textarea>
+                    </div>
+                    <button class="terminal-gold-button" type="submit">SEND MESSAGE</button>
+                </form>
+            </div>
+        </section>
+
+        <section class="closing-banner">
+            <div class="closing-title">
+                <span>✈</span>
+                <strong>GO FURTHER. TRAVEL BETTER.</strong>
+            </div>
+            <p>
+                Terminal One is more than a store.<br>
+                It's part of your journey.
+            </p>
+            <a href="#products">DISCOVER MORE ›</a>
+        </section>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

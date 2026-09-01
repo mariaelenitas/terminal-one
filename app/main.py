@@ -1,5 +1,6 @@
-
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.database import engine, Base
 
@@ -21,7 +22,18 @@ from app.routers import orders
 Base.metadata.create_all(bind=engine)
 
 
-app = FastAPI()
+app = FastAPI(
+    title="Terminal One",
+    description="Your journey starts here.",
+    version="1.0.0"
+)
+
+
+app.mount(
+    "/static",
+    StaticFiles(directory="app/static"),
+    name="static"
+)
 
 
 app.include_router(products_router)
@@ -33,7 +45,6 @@ app.include_router(orders.router)
 
 @app.get("/")
 def home():
-    return {
-        "store": "Terminal One",
-        "slogan": "Your journey starts here."
-    }
+    return FileResponse(
+        "app/templates/index.html"
+    )

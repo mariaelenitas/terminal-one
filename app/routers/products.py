@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+import uuid
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile
+)
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -9,6 +18,15 @@ from app.security import verify_token
 
 
 router = APIRouter()
+
+
+PRODUCT_UPLOAD_DIRECTORY = "app/static/uploads/products"
+
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp"
+}
 
 
 def require_admin(
@@ -63,6 +81,62 @@ def get_product(
     return product
 
 
+@router.post("/products/upload-image")
+async def upload_product_image(
+    image: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(verify_token)
+):
+    require_admin(
+        user_id=user_id,
+        db=db
+    )
+
+    if image.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid image format. Use JPG, PNG or WEBP"
+        )
+
+    os.makedirs(
+        PRODUCT_UPLOAD_DIRECTORY,
+        exist_ok=True
+    )
+
+    extension_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp"
+    }
+
+    extension = extension_map[image.content_type]
+
+    filename = f"{uuid.uuid4().hex}{extension}"
+
+    file_path = os.path.join(
+        PRODUCT_UPLOAD_DIRECTORY,
+        filename
+    )
+
+    contents = await image.read()
+
+    max_size = 5 * 1024 * 1024
+
+    if len(contents) > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail="Image must be smaller than 5 MB"
+        )
+
+    with open(file_path, "wb") as destination:
+        destination.write(contents)
+
+    return {
+        "message": "Image uploaded successfully",
+        "image_url": f"/static/uploads/products/{filename}"
+    }
+
+
 @router.post("/products")
 def create_product(
     product: ProductCreate,
@@ -79,7 +153,8 @@ def create_product(
         description=product.description,
         price=product.price,
         stock=product.stock,
-        category_id=product.category_id
+        category_id=product.category_id,
+        image_url=product.image_url
     )
 
     db.add(new_product)
@@ -116,6 +191,7 @@ def update_product(
     product.price = product_data.price
     product.stock = product_data.stock
     product.category_id = product_data.category_id
+    product.image_url = product_data.image_url
 
     db.commit()
     db.refresh(product)

@@ -28,13 +28,8 @@ class UserCreate(BaseModel):
     address: str
 
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
-
-
-class PasswordReset(BaseModel):
-    email: str
+class ChangePasswordRequest(BaseModel):
+    current_password: str
     new_password: str
 
 
@@ -78,6 +73,70 @@ def create_user(
     }
 
 
+@router.post("/login")
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.email == form_data.username
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    if not verify_password(
+        form_data.password,
+        user.password
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    token = create_access_token(
+        {
+            "sub": str(user.id)
+        }
+    )
+
+    return {
+        "access_token": token,
+        "token_type": "bearer"
+    }
+
+
+@router.get("/me")
+def get_current_user(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(verify_token)
+):
+    user_id = int(user_id)
+
+    user = db.query(User).filter(
+        User.id == user_id
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "phone": user.phone,
+        "country": user.country,
+        "address": user.address,
+        "is_admin": user.is_admin
+    }
+
+
 @router.get("/")
 def get_users(
     db: Session = Depends(get_db),
@@ -117,45 +176,9 @@ def get_users(
     ]
 
 
-@router.post("/login")
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-    user = db.query(User).filter(
-        User.email == form_data.username
-    ).first()
-
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password"
-        )
-
-    if not verify_password(
-        form_data.password,
-        user.password
-    ):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid email or password"
-        )
-
-    token = create_access_token(
-        {
-            "sub": str(user.id)
-        }
-    )
-
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
-
-
-@router.put("/reset-password")
-def reset_password(
-    data: PasswordReset,
+@router.put("/change-password")
+def change_password(
+    data: ChangePasswordRequest,
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
@@ -168,34 +191,30 @@ def reset_password(
     if not current_user:
         raise HTTPException(
             status_code=404,
-            detail="Authenticated user not found"
-        )
-
-    target_user = db.query(User).filter(
-        User.email == data.email
-    ).first()
-
-    if not target_user:
-        raise HTTPException(
-            status_code=404,
             detail="User not found"
         )
 
-    if (
-        current_user.id != target_user.id
-        and not current_user.is_admin
+    if not verify_password(
+        data.current_password,
+        current_user.password
     ):
         raise HTTPException(
-            status_code=403,
-            detail="You can only change your own password"
+            status_code=400,
+            detail="Current password is incorrect"
         )
 
-    target_user.password = hash_password(
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from current password"
+        )
+
+    current_user.password = hash_password(
         data.new_password
     )
 
     db.commit()
 
     return {
-        "message": "Password updated successfully"
+        "message": "Password changed successfully"
     }
