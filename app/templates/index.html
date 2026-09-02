@@ -46,6 +46,7 @@
         <a href="#categories">CATEGORIES</a>
         <a href="#" id="nav-best-deals">BEST DEALS</a>
         <a href="#" id="nav-my-orders">MY ORDERS</a>
+        <a href="#" id="nav-wishlist">WISHLIST</a>
         <a href="#about">ABOUT US</a>
         <a href="#contact">CONTACT</a>
     </nav>
@@ -191,10 +192,32 @@
                 <a href="#products" id="view-all-products">VIEW ALL PRODUCTS ›</a>
             </div>
 
+            <div class="catalog-controls" aria-label="Product filters">
+                <select id="catalog-sort" aria-label="Sort products">
+                    <option value="name">Sort: Name</option><option value="price_asc">Price: Low to High</option>
+                    <option value="price_desc">Price: High to Low</option><option value="newest">Newest</option>
+                </select>
+                <input id="catalog-min-price" type="number" min="0" step="1" placeholder="Min €" aria-label="Minimum price">
+                <input id="catalog-max-price" type="number" min="0" step="1" placeholder="Max €" aria-label="Maximum price">
+                <button id="catalog-clear" type="button">CLEAR FILTERS</button>
+            </div>
+
             <div class="products-grid" id="products-container">
                 <div class="loading-products">Loading products...</div>
             </div>
         </section>
+
+        <section class="products-section experience-section" id="trending">
+            <div class="products-heading"><h3>TRENDING NOW</h3><span>Chosen from real store activity</span></div>
+            <div class="products-grid" id="trending-container"><div class="loading-products">Loading trending products...</div></div>
+        </section>
+
+        <section class="journey-banner">
+            <div><p class="eyebrow">PERSONAL TRAVEL CURATION</p><h2>BUILD YOUR JOURNEY</h2><p>Tell us where and how you travel. We will assemble a tailored shortlist.</p></div>
+            <button id="build-journey-button" class="primary-button" type="button">START MY JOURNEY ›</button>
+        </section>
+
+        <button id="ask-terminal-button" class="ask-terminal-button" type="button" aria-label="Ask Terminal One">✦ ASK TERMINAL ONE</button>
 
         <section class="about-section terminal-content-section" id="about">
             <div class="section-title">

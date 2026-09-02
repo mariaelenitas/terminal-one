@@ -81,6 +81,7 @@ def get_cart(
     return {
         "cart_id": cart.id,
         "user_id": cart.user_id,
+        "applied_bundle_id": cart.applied_bundle_id,
         "items": cart_items,
         "total": round(total, 2)
     }

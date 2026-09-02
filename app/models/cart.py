@@ -13,3 +13,4 @@ class Cart(Base):
         ForeignKey("users.id"),
         nullable=False
     )
+    applied_bundle_id = Column(Integer, ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True)

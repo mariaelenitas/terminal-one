@@ -26,3 +26,10 @@ htmlcov/
 
 # Backup files
 *.backup
+
+# Local database files
+*.db
+*.sqlite
+
+# Simulated email outbox
+app/static/outbox/*.json

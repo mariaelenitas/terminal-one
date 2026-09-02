@@ -6,7 +6,8 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
-    UploadFile
+    UploadFile,
+    Query
 )
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.schemas.product import ProductCreate
 from app.security import verify_token
+from app.services.audit import add_audit_log
 
 
 router = APIRouter()
@@ -56,9 +58,33 @@ def require_admin(
 
 @router.get("/products")
 def get_products(
+    search: str = Query(default=""),
+    category_id: int = Query(default=None),
+    min_price: float = Query(default=None),
+    max_price: float = Query(default=None),
+    sort: str = Query(default="name"),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db)
 ):
-    products = db.query(Product).all()
+    query = db.query(Product).filter(Product.is_active.is_(True))
+    if search.strip():
+        query = query.filter(Product.name.ilike(f"%{search.strip()}%"))
+    if category_id is not None:
+        query = query.filter(Product.category_id == category_id)
+    if min_price is not None:
+        query = query.filter(Product.price >= min_price)
+    if max_price is not None:
+        query = query.filter(Product.price <= max_price)
+    if sort == "price_asc":
+        query = query.order_by(Product.price.asc())
+    elif sort == "price_desc":
+        query = query.order_by(Product.price.desc())
+    elif sort == "newest":
+        query = query.order_by(Product.id.desc())
+    else:
+        query = query.order_by(Product.name.asc())
+    products = query.offset(offset).limit(limit).all()
 
     return products
 
@@ -87,7 +113,7 @@ async def upload_product_image(
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
-    require_admin(
+    admin = require_admin(
         user_id=user_id,
         db=db
     )
@@ -143,7 +169,7 @@ def create_product(
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
-    require_admin(
+    admin = require_admin(
         user_id=user_id,
         db=db
     )
@@ -158,6 +184,8 @@ def create_product(
     )
 
     db.add(new_product)
+    db.flush()
+    add_audit_log(db, admin.id, "create", "product", new_product.id, {"name": new_product.name})
     db.commit()
     db.refresh(new_product)
 
@@ -171,7 +199,7 @@ def update_product(
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
-    require_admin(
+    admin = require_admin(
         user_id=user_id,
         db=db
     )
@@ -192,6 +220,7 @@ def update_product(
     product.stock = product_data.stock
     product.category_id = product_data.category_id
     product.image_url = product_data.image_url
+    add_audit_log(db, admin.id, "update", "product", product.id, {"name": product.name})
 
     db.commit()
     db.refresh(product)
@@ -205,7 +234,7 @@ def delete_product(
     db: Session = Depends(get_db),
     user_id: str = Depends(verify_token)
 ):
-    require_admin(
+    admin = require_admin(
         user_id=user_id,
         db=db
     )
@@ -220,9 +249,10 @@ def delete_product(
             detail="Product not found"
         )
 
-    db.delete(product)
+    product.is_active = False
+    add_audit_log(db, admin.id, "deactivate", "product", product.id, {"name": product.name})
     db.commit()
 
     return {
-        "message": "Product deleted successfully"
+        "message": "Product deactivated successfully"
     }

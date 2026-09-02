@@ -30,6 +30,13 @@ Terminal One is a full-stack e-commerce project focused on premium travel essent
 - My Orders area with order details and current status
 - Best Deals section
 - About Us and Contact sections
+- Profile and multiple delivery addresses
+- Wishlist
+- Password recovery
+- Coupons and discounts
+- Verified-purchase reviews
+- Order cancellation with automatic stock restoration
+- Shipment tracking code
 
 > The checkout payment methods are intentionally simulated for demonstration purposes. No real payment is processed and no payment credentials are stored.
 
@@ -50,6 +57,11 @@ Terminal One is a full-stack e-commerce project focused on premium travel essent
   - Delivered
   - Cancelled
 - Admin order summary and revenue overview
+- Dashboard with sales, customers and low-stock alerts
+- Customer management and activation
+- Coupon management
+- CSV exports for customers, products and orders
+- Audit log of administrative operations
 
 ## Tech Stack
 
@@ -122,6 +134,8 @@ Main entities:
 - Cart Items
 - Orders
 - Order Items
+- Addresses, Wishlist Items, Coupons and Reviews
+- Password Reset Tokens and Audit Logs
 
 The checkout workflow validates stock, creates the order and order items, decreases product stock and clears the cart.
 
@@ -182,6 +196,12 @@ Do not commit `.env` to source control.
 
 ### 6. Run the application
 
+For an existing database, apply the Alembic migration first:
+
+```bash
+alembic upgrade head
+```
+
 ```bash
 uvicorn app.main:app --reload
 ```
@@ -215,6 +235,9 @@ http://127.0.0.1:8000/redoc
 - `/products` — catalogue and product management
 - `/cart` — cart operations
 - `/orders` — checkout, order history and admin order management
+- `/profile`, `/addresses`, `/wishlist` — customer account
+- `/coupons`, `/reviews` — promotions and product reviews
+- `/admin/dashboard`, `/admin/audit-logs`, `/admin/export` — administration
 
 Protected endpoints use Bearer JWT authentication.
 

@@ -12,7 +12,12 @@ const cartCount = document.getElementById("cart-count");
 const mainNav = document.querySelector(".main-nav");
 const bestDealsLink = document.getElementById("nav-best-deals");
 const myOrdersLink = document.getElementById("nav-my-orders");
+const wishlistLink = document.getElementById("nav-wishlist");
 const contactForm = document.getElementById("contact-form");
+const catalogSort = document.getElementById("catalog-sort");
+const catalogMinPrice = document.getElementById("catalog-min-price");
+const catalogMaxPrice = document.getElementById("catalog-max-price");
+const trendingContainer = document.getElementById("trending-container");
 
 let currentUser = null;
 let currentTimeZone = undefined;
@@ -20,6 +25,8 @@ let allProducts = [];
 let allCategories = [];
 let activeCategoryId = null;
 let activeSearchTerm = "";
+let wishlistProductIds = new Set();
+let catalogInsights = new Map();
 
 function getToken() {
     return localStorage.getItem("terminal_one_token");
@@ -32,6 +39,42 @@ function saveToken(token) {
 function clearToken() {
     localStorage.removeItem("terminal_one_token");
     currentUser = null;
+    wishlistProductIds = new Set();
+}
+
+async function loadWishlistState() {
+    if (!currentUser || !getToken()) {
+        wishlistProductIds = new Set();
+        return;
+    }
+
+    try {
+        const items = await apiRequest("/wishlist");
+        wishlistProductIds = new Set(items.map((item) => Number(item.product_id)));
+    } catch (error) {
+        wishlistProductIds = new Set();
+    }
+}
+
+async function toggleWishlist(productId) {
+    if (!requireLogin()) return null;
+    const id = Number(productId);
+
+    if (wishlistProductIds.has(id)) {
+        await apiRequest(`/wishlist/${id}`, { method: "DELETE" });
+        wishlistProductIds.delete(id);
+        showToast("Removed from wishlist.", "success");
+    } else {
+        await apiRequest("/wishlist", {
+            method: "POST",
+            body: JSON.stringify({ product_id: id })
+        });
+        wishlistProductIds.add(id);
+        showToast("Saved to wishlist.", "success");
+    }
+
+    renderProducts();
+    return wishlistProductIds.has(id);
 }
 
 function escapeHtml(value) {
@@ -163,6 +206,16 @@ function getFilteredProducts() {
         });
     }
 
+    const minimum = catalogMinPrice?.value === "" ? null : Number(catalogMinPrice.value);
+    const maximum = catalogMaxPrice?.value === "" ? null : Number(catalogMaxPrice.value);
+    if (minimum !== null) products = products.filter((product) => Number(product.price) >= minimum);
+    if (maximum !== null) products = products.filter((product) => Number(product.price) <= maximum);
+    const sort = catalogSort?.value || "name";
+    products.sort((a, b) => sort === "price_asc" ? Number(a.price) - Number(b.price)
+        : sort === "price_desc" ? Number(b.price) - Number(a.price)
+        : sort === "newest" ? Number(b.id) - Number(a.id)
+        : String(a.name).localeCompare(String(b.name)));
+
     return products;
 }
 
@@ -212,8 +265,16 @@ function renderProducts() {
 
         const stock = Number(product.stock || 0);
         const isOutOfStock = stock <= 0;
+        const isFavorite = wishlistProductIds.has(Number(product.id));
+        const insight = catalogInsights.get(Number(product.id)) || {};
 
         card.innerHTML = `
+            ${insight.badge ? `<span class="product-badge">${escapeHtml(insight.badge)}</span>` : ""}
+            <button class="terminal-wishlist-heart ${isFavorite ? "active" : ""}" type="button"
+                aria-label="${isFavorite ? "Remove from" : "Add to"} wishlist"
+                title="${isFavorite ? "Remove from wishlist" : "Add to wishlist"}">
+                ${isFavorite ? "♥" : "♡"}
+            </button>
             ${getProductImageHtml(product)}
             <h4>${escapeHtml(product.name)}</h4>
             <p class="description">${escapeHtml(product.description)}</p>
@@ -221,6 +282,7 @@ function renderProducts() {
                 <span class="product-price">${formatMoney(product.price)}</span>
                 <span class="stock">${stock} in stock</span>
             </div>
+            ${Number(insight.average_rating || 0) > 0 ? `<div class="product-rating">★ ${Number(insight.average_rating).toFixed(1)} · ${Number(insight.units_sold || 0)} sold</div>` : ""}
             <button
                 class="terminal-card-cart-button"
                 type="button"
@@ -231,6 +293,20 @@ function renderProducts() {
         `;
 
         const addButton = card.querySelector(".terminal-card-cart-button");
+        const wishlistButton = card.querySelector(".terminal-wishlist-heart");
+
+        wishlistButton.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            if (!requireLogin()) return;
+            wishlistButton.disabled = true;
+            try {
+                await toggleWishlist(product.id);
+            } catch (error) {
+                showToast(error.message, "error");
+            } finally {
+                if (wishlistButton.isConnected) wishlistButton.disabled = false;
+            }
+        });
 
         addButton.addEventListener("click", async (event) => {
             event.stopPropagation();
@@ -282,6 +358,27 @@ async function loadProducts() {
             `;
         }
     }
+}
+
+async function loadCatalogInsights() {
+    try {
+        const data = await apiRequest("/catalog/insights");
+        catalogInsights = new Map((data.products || []).map((item) => [Number(item.id), item]));
+        renderProducts();
+        if (trendingContainer) {
+            trendingContainer.innerHTML = (data.trending || []).slice(0, 4).map((product) => `
+                <article class="product-card terminal-product-card trending-card" data-product-id="${product.id}">
+                    ${product.badge ? `<span class="product-badge">${escapeHtml(product.badge)}</span>` : ""}
+                    ${getProductImageHtml(product)}<h4>${escapeHtml(product.name)}</h4>
+                    <p class="description">${escapeHtml(product.description)}</p>
+                    <div class="product-bottom"><span class="product-price">${formatMoney(product.price)}</span><span class="stock">★ ${Number(product.average_rating || 0).toFixed(1)}</span></div>
+                </article>`).join("") || `<div class="loading-products">No trending products yet.</div>`;
+            trendingContainer.querySelectorAll(".trending-card").forEach((card) => card.onclick = () => {
+                const product = allProducts.find((item) => Number(item.id) === Number(card.dataset.productId));
+                if (product) openProductModal(product);
+            });
+        }
+    } catch (error) { console.error("Catalog insights error:", error); }
 }
 
 async function loadCategories() {
@@ -348,9 +445,16 @@ function selectCategory(categoryId) {
     document.getElementById("products")?.scrollIntoView({ behavior: "smooth" });
 }
 
-function openProductModal(product) {
+async function openProductModal(product) {
     const stock = Number(product.stock || 0);
     const isOutOfStock = stock <= 0;
+    let reviews = [];
+    try { reviews = await apiRequest(`/products/${product.id}/reviews`); } catch (error) { reviews = []; }
+    let pairedProducts = [];
+    try { pairedProducts = await apiRequest(`/products/${product.id}/frequently-bought`); } catch (error) { pairedProducts = []; }
+    const averageRating = reviews.length
+        ? reviews.reduce((total, review) => total + Number(review.rating || 0), 0) / reviews.length
+        : 0;
 
     const overlay = createModal(
         product.name,
@@ -384,7 +488,19 @@ function openProductModal(product) {
                     >
                         ${isOutOfStock ? "OUT OF STOCK" : "ADD TO CART"}
                     </button>
+                    <button id="product-detail-wishlist" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                        ${wishlistProductIds.has(Number(product.id)) ? "♥ REMOVE FROM WISHLIST" : "♡ ADD TO WISHLIST"}
+                    </button>
                 </div>
+            </div>
+            <div class="checkout-review-block" style="margin-top:18px;">
+                <strong>VERIFIED CUSTOMER REVIEWS</strong>
+                ${reviews.length ? `<p><strong>${averageRating.toFixed(1)} / 5</strong> · ${reviews.length} ${reviews.length === 1 ? "review" : "reviews"}</p>` : ""}
+                ${reviews.map((review) => `<p>${"★".repeat(Number(review.rating))}${"☆".repeat(5 - Number(review.rating))} · ${escapeHtml(review.customer_name)} · <strong>VERIFIED PURCHASE</strong><br>${escapeHtml(review.comment || "")}</p>`).join("") || "<p>No reviews yet.</p>"}
+            </div>
+            <div class="checkout-review-block" style="margin-top:18px;">
+                <strong>FREQUENTLY BOUGHT TOGETHER</strong>
+                <div class="frequent-grid">${pairedProducts.map((item) => `<button class="frequent-product" data-product-id="${item.id}" type="button">${getProductImageHtml(item)}<span>${escapeHtml(item.name)}</span><strong>${formatMoney(item.price)}</strong></button>`).join("") || "<p>More combinations coming soon.</p>"}</div>
             </div>
         `
     );
@@ -409,6 +525,25 @@ function openProductModal(product) {
             addButton.disabled = false;
             addButton.textContent = "ADD TO CART";
         }
+    });
+
+    overlay.querySelector("#product-detail-wishlist")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+            const active = await toggleWishlist(product.id);
+            if (active !== null) button.textContent = active ? "♥ REMOVE FROM WISHLIST" : "♡ ADD TO WISHLIST";
+        } catch (error) {
+            showToast(error.message, "error");
+        } finally {
+            button.disabled = false;
+        }
+    });
+    overlay.querySelectorAll(".frequent-product").forEach((button) => button.onclick = async () => {
+        button.disabled = true;
+        try { await addToCart(Number(button.dataset.productId), 1); showToast("Added to cart.", "success"); }
+        catch (error) { showToast(error.message, "error"); }
+        finally { button.disabled = false; }
     });
 }
 
@@ -602,8 +737,32 @@ function injectFrontendStyles() {
         }
 
         .terminal-product-card {
+            position: relative;
             cursor: pointer;
             transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .terminal-wishlist-heart {
+            position: absolute;
+            z-index: 3;
+            top: 12px;
+            right: 12px;
+            width: 42px;
+            height: 42px;
+            border: 1px solid rgba(232, 173, 52, 0.75);
+            border-radius: 50%;
+            background: rgba(5, 6, 7, 0.88);
+            color: #f3c35a;
+            font-size: 25px;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.42);
+        }
+
+        .terminal-wishlist-heart:hover,
+        .terminal-wishlist-heart.active {
+            background: #e8ad34;
+            color: #090a0b;
         }
 
         .terminal-product-card:hover,
@@ -715,6 +874,16 @@ function injectFrontendStyles() {
 
         .terminal-modal-body {
             padding: 24px;
+        }
+
+        .terminal-modal-back-row {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            margin: -24px -24px 20px;
+            padding: 12px 24px;
+            background: rgba(10, 12, 14, 0.96);
+            border-bottom: 1px solid #292d31;
         }
 
         .terminal-form-group {
@@ -840,6 +1009,8 @@ function injectFrontendStyles() {
         .admin-toolbar {
             display: flex;
             justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
             margin-bottom: 18px;
         }
 
@@ -898,6 +1069,88 @@ function injectFrontendStyles() {
         .admin-product-actions {
             display: flex;
             gap: 8px;
+        }
+
+        .admin-customers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .admin-customer-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #292d31;
+            border-radius: 6px;
+            background: #0b0d0f;
+        }
+
+        .admin-customer-row.inactive {
+            opacity: 0.65;
+        }
+
+        .admin-customer-info h3 {
+            margin: 0 0 6px;
+            color: #f3f3f3;
+            font-size: 13px;
+        }
+
+        .admin-customer-meta {
+            color: #aeb3b7;
+            font-size: 10px;
+            line-height: 1.7;
+        }
+
+        .admin-customer-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 7px;
+        }
+
+        .admin-customer-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin-top: 9px;
+        }
+
+        .admin-customer-badge {
+            padding: 4px 7px;
+            border: 1px solid #34383c;
+            border-radius: 20px;
+            color: #c5c8cb;
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+        }
+
+        .admin-customer-badge.admin {
+            border-color: rgba(232, 173, 52, 0.4);
+            color: #e8ad34;
+        }
+
+        .admin-customer-badge.active {
+            border-color: rgba(117, 207, 69, 0.35);
+            color: #9ee176;
+        }
+
+        .admin-customer-badge.inactive {
+            border-color: rgba(227, 77, 67, 0.35);
+            color: #ff8179;
+        }
+
+        .admin-customer-search {
+            flex: 1;
+            min-width: 220px;
+            border: 1px solid #34383c;
+            border-radius: 5px;
+            background: #111315;
+            color: #f3f3f3;
+            padding: 11px 12px;
         }
 
         .admin-empty-state {
@@ -1354,6 +1607,26 @@ function injectFrontendStyles() {
             font-weight: 800;
         }
 
+        .payment-brand {
+            min-width: 76px;
+            min-height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 7px;
+            padding: 5px 9px;
+            background: #f7f7f7;
+            color: #090909;
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: -0.3px;
+        }
+
+        .payment-brand.mbway { color: #111; }
+        .payment-brand.mbway .mb { color: #e52335; }
+        .payment-brand.mbway .way { color: #111; }
+        .payment-brand.card { letter-spacing: 1px; color: #bd7e12; }
+
         .checkout-actions {
             display: flex;
             gap: 10px;
@@ -1409,6 +1682,30 @@ function injectFrontendStyles() {
             gap: 10px;
         }
 
+        .catalog-controls { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 22px; }
+        .catalog-controls input,.catalog-controls select,.catalog-controls button { min-height:40px; padding:9px 12px; border:1px solid #34383c; border-radius:5px; background:#0b0d0f; color:#f4f4f4; }
+        .catalog-controls button { color:#e8ad34; cursor:pointer; }
+        .product-badge { position:absolute; z-index:2; top:14px; left:12px; padding:5px 8px; background:#e8ad34; color:#080808; border-radius:3px; font-size:8px; font-weight:900; letter-spacing:.7px; }
+        .product-rating { margin-top:8px; color:#d7b45b; font-size:9px; }
+        .experience-section,.journey-banner { width:min(1180px,calc(100% - 40px)); margin:30px auto; }
+        .journey-banner { display:grid; grid-template-columns:1fr auto; align-items:center; gap:30px; padding:34px; border:1px solid #40341c; background:linear-gradient(120deg,#0d0f10,#17130c); border-radius:8px; }
+        .journey-banner h2 { margin:4px 0 8px; color:white; letter-spacing:1px; }
+        .journey-banner p { color:#aeb3b7; }
+        .journey-banner .primary-button { border:0; cursor:pointer; }
+        .ask-terminal-button { position:fixed; z-index:100; right:22px; bottom:22px; padding:13px 17px; border:1px solid #e8ad34; border-radius:30px; background:#0b0d0f; color:#e8ad34; font-weight:800; box-shadow:0 8px 30px #000; cursor:pointer; }
+        .frequent-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:12px; }
+        .frequent-product { border:1px solid #30343a; background:#0b0d0f; color:#eee; padding:10px; border-radius:5px; cursor:pointer; }
+        .frequent-product .product-image-wrapper { height:90px; }
+        .frequent-product span,.frequent-product strong { display:block; margin-top:5px; }
+        .bundle-row img { width:150px; height:110px; object-fit:cover; border-radius:5px; }
+        .tracking-timeline { display:grid; grid-template-columns:repeat(3,1fr); margin-bottom:22px; }
+        .tracking-step { text-align:center; color:#777; border-top:2px solid #333; padding-top:12px; }
+        .tracking-step span { display:block; margin:-25px auto 8px; width:24px; line-height:24px; border-radius:50%; background:#333; }
+        .tracking-step.complete { color:#e8ad34; border-color:#e8ad34; }.tracking-step.complete span { background:#e8ad34;color:#111; }
+        .rewards-card { padding:30px; background:linear-gradient(135deg,#19140b,#08090a); border:1px solid #684d1e; border-radius:9px; }
+        .rewards-card strong { display:block; color:#e8ad34; font-size:32px; margin:14px 0; }.rewards-progress { height:9px;background:#272727;border-radius:9px;overflow:hidden}.rewards-progress i { display:block;height:100%;background:#e8ad34; }
+        .analytics-bars div { display:grid;grid-template-columns:90px 1fr 30px;gap:8px;align-items:center;margin:8px 0}.analytics-bars i{height:7px;background:#e8ad34;border-radius:8px}
+
         @media (max-width: 760px) {
 
             .checkout-shell,
@@ -1458,6 +1755,7 @@ function injectFrontendStyles() {
                 align-items: flex-start;
                 flex-direction: column;
             }
+            .journey-banner { grid-template-columns:1fr; }.frequent-grid { grid-template-columns:1fr; }.ask-terminal-button { right:12px;bottom:12px; }
         }
     `;
 
@@ -1496,6 +1794,26 @@ function createModal(title, subtitle, bodyHtml) {
     return overlay;
 }
 
+function addModalBack(overlay, onBack, label = "BACK") {
+    const body = overlay.querySelector(".terminal-modal-body");
+    if (!body || typeof onBack !== "function") return;
+    const row = document.createElement("div");
+    row.className = "terminal-modal-back-row";
+    row.innerHTML = `<button class="terminal-secondary-button terminal-modal-back" type="button">← ${escapeHtml(label)}</button>`;
+    row.querySelector(".terminal-modal-back").addEventListener("click", () => {
+        overlay.remove();
+        onBack();
+    });
+    body.prepend(row);
+}
+
+document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const overlays = document.querySelectorAll(".terminal-modal-overlay");
+    const latest = overlays[overlays.length - 1];
+    if (latest) latest.remove();
+});
+
 function showToast(message, type = "success") {
     const toast = document.createElement("div");
     toast.className = `terminal-toast ${type}`;
@@ -1528,7 +1846,27 @@ async function loginUser(email, password) {
 
     saveToken(data.access_token);
     await loadCurrentUser();
+    await loadWishlistState();
+    renderProducts();
     await updateCartCount();
+}
+
+async function registerUser(userData) {
+    const response = await fetch("/users/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(userData)
+    });
+
+    const data = await readResponseData(response);
+
+    if (!response.ok) {
+        throw new Error(getErrorMessage(data, "Account creation failed"));
+    }
+
+    return data;
 }
 
 function openLoginModal() {
@@ -1552,12 +1890,30 @@ function openLoginModal() {
                     <input id="login-password" type="password" autocomplete="current-password" required>
                 </div>
                 <button class="terminal-gold-button" type="submit">SIGN IN</button>
+                <button id="open-register-button" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                    CREATE A NEW ACCOUNT
+                </button>
+                <button id="forgot-password-button" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                    FORGOT PASSWORD?
+                </button>
             </form>
         `
     );
 
     const form = overlay.querySelector("#login-form");
     const message = overlay.querySelector("#login-message");
+    const registerButton = overlay.querySelector("#open-register-button");
+    const forgotButton = overlay.querySelector("#forgot-password-button");
+
+    registerButton.addEventListener("click", () => {
+        overlay.remove();
+        openRegisterModal();
+    });
+
+    forgotButton.addEventListener("click", () => {
+        overlay.remove();
+        openForgotPasswordModal();
+    });
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -1580,6 +1936,130 @@ function openLoginModal() {
         } finally {
             button.disabled = false;
             button.textContent = "SIGN IN";
+        }
+    });
+}
+
+function openRegisterModal() {
+    const existing = document.querySelector(".terminal-modal-overlay");
+    if (existing) {
+        existing.remove();
+    }
+
+    const overlay = createModal(
+        "CREATE ACCOUNT",
+        "JOIN TERMINAL ONE",
+        `
+            <div id="register-message" class="terminal-message"></div>
+            <form id="register-form">
+                <div class="terminal-form-group">
+                    <label>FULL NAME</label>
+                    <input id="register-name" type="text" autocomplete="name" minlength="2" required>
+                </div>
+
+                <div class="terminal-form-group">
+                    <label>EMAIL</label>
+                    <input id="register-email" type="email" autocomplete="email" required>
+                </div>
+
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PASSWORD</label>
+                        <input id="register-password" type="password" autocomplete="new-password" minlength="6" required>
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>CONFIRM PASSWORD</label>
+                        <input id="register-password-confirm" type="password" autocomplete="new-password" minlength="6" required>
+                    </div>
+                </div>
+
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PHONE</label>
+                        <input id="register-phone" type="tel" autocomplete="tel">
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>COUNTRY</label>
+                        <input id="register-country" type="text" autocomplete="country-name">
+                    </div>
+                </div>
+
+                <div class="terminal-form-group">
+                    <label>ADDRESS</label>
+                    <input id="register-address" type="text" autocomplete="street-address">
+                </div>
+
+                <button class="terminal-gold-button" type="submit">CREATE ACCOUNT</button>
+                <button id="back-to-login-button" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                    BACK TO SIGN IN
+                </button>
+            </form>
+        `
+    );
+
+    const form = overlay.querySelector("#register-form");
+    const message = overlay.querySelector("#register-message");
+    const backButton = overlay.querySelector("#back-to-login-button");
+
+    backButton.addEventListener("click", () => {
+        overlay.remove();
+        openLoginModal();
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        message.textContent = "";
+        message.className = "terminal-message";
+
+        const name = overlay.querySelector("#register-name").value.trim();
+        const email = overlay.querySelector("#register-email").value.trim().toLowerCase();
+        const password = overlay.querySelector("#register-password").value;
+        const passwordConfirm = overlay.querySelector("#register-password-confirm").value;
+        const phone = overlay.querySelector("#register-phone").value.trim();
+        const country = overlay.querySelector("#register-country").value.trim();
+        const address = overlay.querySelector("#register-address").value.trim();
+
+        if (name.length < 2) {
+            message.textContent = "Please enter your full name.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        if (password.length < 6) {
+            message.textContent = "Password must contain at least 6 characters.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        if (password !== passwordConfirm) {
+            message.textContent = "Passwords do not match.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        const button = form.querySelector("button[type='submit']");
+        button.disabled = true;
+        button.textContent = "CREATING ACCOUNT...";
+
+        try {
+            await registerUser({
+                name,
+                email,
+                password,
+                phone: phone || null,
+                country: country || null,
+                address: address || null
+            });
+
+            await loginUser(email, password);
+            overlay.remove();
+            showToast("Account created successfully. Welcome to Terminal One!", "success");
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            button.disabled = false;
+            button.textContent = "CREATE ACCOUNT";
         }
     });
 }
@@ -1616,6 +2096,7 @@ async function loadCurrentUser() {
 function logoutUser() {
     clearToken();
     updateAccountInterface();
+    renderProducts();
     if (cartCount) cartCount.textContent = "0";
     showToast("Signed out.", "success");
 }
@@ -1626,10 +2107,7 @@ function updateAccountInterface() {
 
         if (currentUser) {
             accountText.textContent = currentUser.name;
-            accountText.onclick = () => {
-                const logout = window.confirm("Sign out of Terminal One?");
-                if (logout) logoutUser();
-            };
+            accountText.onclick = openAccountModal;
         } else {
             accountText.textContent = "Sign In / Register";
             accountText.onclick = openLoginModal;
@@ -1918,6 +2396,9 @@ function getCheckoutInitialState(cart) {
     return {
         step: 1,
         cart,
+        couponCode: "",
+        couponDiscount: 0,
+        couponApplied: false,
         shipping: {
             fullName: user.name || "",
             email: user.email || "",
@@ -1931,7 +2412,11 @@ function getCheckoutInitialState(cart) {
             method: "standard",
             label: "Standard Delivery",
             detail: "3–5 business days",
-            fee: 0
+            fee: 0,
+            airport: "",
+            terminal: "",
+            flight: "",
+            pickupTime: ""
         },
         payment: {
             method: "card",
@@ -1947,7 +2432,8 @@ function getCheckoutInitialState(cart) {
 function getCheckoutSummaryHtml(state) {
     const items = state.cart.items || [];
     const shippingFee = Number(state.delivery.fee || 0);
-    const grandTotal = Number(state.cart.total || 0) + shippingFee;
+    const discount = Number(state.couponDiscount || 0);
+    const grandTotal = Math.max(0, Number(state.cart.total || 0) - discount + shippingFee);
 
     return `
         <div class="checkout-summary-card">
@@ -1968,6 +2454,7 @@ function getCheckoutSummaryHtml(state) {
                 <span>Delivery</span>
                 <strong>${shippingFee === 0 ? "FREE" : formatMoney(shippingFee)}</strong>
             </div>
+            ${discount > 0 ? `<div class="checkout-summary-line"><span>Discount (${escapeHtml(state.couponCode)})</span><strong>-${formatMoney(discount)}</strong></div>` : ""}
             <div class="checkout-summary-line total">
                 <span>Total</span>
                 <strong>${formatMoney(grandTotal)}</strong>
@@ -2062,7 +2549,11 @@ function checkoutDeliveryStepHtml(state) {
                     <strong>EXPRESS DELIVERY</strong>
                     <span>1–2 business days<br>€9.90</span>
                 </button>
+                <button class="checkout-choice ${method === "airport_pickup" ? "active" : ""}" data-delivery="airport_pickup" type="button">
+                    <strong>AIRPORT PICKUP</strong><span>Meet us at your terminal<br>Free · Demo service</span>
+                </button>
             </div>
+            ${method === "airport_pickup" ? `<div class="checkout-review-block"><div class="terminal-form-row"><div class="terminal-form-group"><label>AIRPORT</label><input id="pickup-airport" value="${escapeHtml(state.delivery.airport)}" placeholder="Lisbon (LIS)"></div><div class="terminal-form-group"><label>TERMINAL</label><input id="pickup-terminal" value="${escapeHtml(state.delivery.terminal)}" placeholder="Terminal 1"></div></div><div class="terminal-form-row"><div class="terminal-form-group"><label>FLIGHT</label><input id="pickup-flight" value="${escapeHtml(state.delivery.flight)}" placeholder="TP1234"></div><div class="terminal-form-group"><label>PICKUP TIME</label><input id="pickup-time" type="datetime-local" value="${escapeHtml(state.delivery.pickupTime)}"></div></div></div>` : ""}
 
             <div class="checkout-security-note">
                 Delivery dates are simulated for the Terminal One project checkout.
@@ -2135,11 +2626,25 @@ function checkoutPaymentStepHtml(state) {
 
     return `
         <div class="checkout-panel">
+            <h3>PROMO CODE</h3>
+            <div class="checkout-review-block">
+                <div class="terminal-form-row" style="align-items:end;">
+                    <div class="terminal-form-group" style="margin-bottom:0;">
+                        <label>COUPON CODE</label>
+                        <input id="checkout-coupon-code" type="text" value="${escapeHtml(state.couponCode || "")}" placeholder="Example: JOURNEY10" ${state.couponApplied ? "disabled" : ""}>
+                    </div>
+                    <button id="${state.couponApplied ? "checkout-remove-coupon" : "checkout-apply-coupon"}" class="${state.couponApplied ? "terminal-danger-button" : "terminal-secondary-button"}" type="button" style="height:42px;">
+                        ${state.couponApplied ? "REMOVE" : "APPLY"}
+                    </button>
+                </div>
+                ${state.couponApplied ? `<p style="margin-top:10px;"><strong>${escapeHtml(state.couponCode)}</strong> applied · You save ${formatMoney(state.couponDiscount)}</p>` : ""}
+            </div>
+
             <h3>PAYMENT METHOD</h3>
 
             <div class="checkout-choice-grid">
                 <button class="checkout-choice ${method === "card" ? "active" : ""}" data-payment="card" type="button">
-                    <span class="checkout-payment-icon">CARD</span>
+                    <span class="payment-brand card">▣ CARD</span>
                     <strong>CREDIT / DEBIT CARD</strong>
                     <span>Visa, Mastercard and compatible cards</span>
                 </button>
@@ -2151,13 +2656,13 @@ function checkoutPaymentStepHtml(state) {
                 </button>
 
                 <button class="checkout-choice ${method === "mbway" ? "active" : ""}" data-payment="mbway" type="button">
-                    <span class="checkout-payment-icon">MB</span>
+                    <span class="payment-brand mbway"><span class="mb">MB</span><span class="way"> WAY</span></span>
                     <strong>MB WAY</strong>
                     <span>Mobile payment simulation</span>
                 </button>
 
                 <button class="checkout-choice ${method === "applepay" ? "active" : ""}" data-payment="applepay" type="button">
-                    <span class="checkout-payment-icon"></span>
+                    <span class="payment-brand"> Pay</span>
                     <strong>APPLE PAY</strong>
                     <span>Simulated wallet checkout</span>
                 </button>
@@ -2213,6 +2718,8 @@ function checkoutReviewStepHtml(state) {
                 <p>${escapeHtml(paymentLabel)}</p>
                 <p>Demo authorization only — no real charge.</p>
             </div>
+
+            ${state.couponApplied ? `<div class="checkout-review-block"><strong>PROMO CODE</strong><p>${escapeHtml(state.couponCode)} · -${formatMoney(state.couponDiscount)}</p></div>` : ""}
 
             <div id="checkout-step-message" class="terminal-message"></div>
 
@@ -2283,7 +2790,9 @@ function wireCheckoutStep(state, overlay) {
     overlay.querySelectorAll("[data-delivery]").forEach((button) => {
         button.addEventListener("click", () => {
             const method = button.dataset.delivery;
-            state.delivery = method === "express"
+            state.delivery = method === "airport_pickup" ? {
+                    ...state.delivery, method: "airport_pickup", label: "Airport Pickup", detail: "Meet at the selected terminal", fee: 0
+                } : method === "express"
                 ? {
                     method: "express",
                     label: "Express Delivery",
@@ -2310,10 +2819,52 @@ function wireCheckoutStep(state, overlay) {
         });
     });
 
+    overlay.querySelector("#checkout-apply-coupon")?.addEventListener("click", async () => {
+        const input = overlay.querySelector("#checkout-coupon-code");
+        const code = input?.value.trim().toUpperCase() || "";
+        if (!code) {
+            message.textContent = "Enter a coupon code.";
+            message.className = "terminal-message error";
+            return;
+        }
+        try {
+            const validation = await apiRequest("/coupons/validate", {
+                method: "POST",
+                body: JSON.stringify({ code, subtotal: Number(state.cart.total || 0) })
+            });
+            state.couponCode = validation.code;
+            state.couponDiscount = Number(validation.discount || 0);
+            state.couponApplied = true;
+            overlay.remove();
+            await renderCheckoutStep(state);
+            showToast("Coupon applied.", "success");
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        }
+    });
+
+    overlay.querySelector("#checkout-remove-coupon")?.addEventListener("click", async () => {
+        state.couponCode = "";
+        state.couponDiscount = 0;
+        state.couponApplied = false;
+        overlay.remove();
+        await renderCheckoutStep(state);
+        showToast("Coupon removed.", "success");
+    });
+
     overlay.querySelector("#checkout-next")?.addEventListener("click", async () => {
         try {
             if (state.step === 1) {
                 collectShippingStep(state, overlay);
+            }
+            if (state.step === 2 && state.delivery.method === "airport_pickup") {
+                state.delivery.airport = overlay.querySelector("#pickup-airport")?.value.trim() || "";
+                state.delivery.terminal = overlay.querySelector("#pickup-terminal")?.value.trim() || "";
+                state.delivery.flight = overlay.querySelector("#pickup-flight")?.value.trim() || "";
+                state.delivery.pickupTime = overlay.querySelector("#pickup-time")?.value || "";
+                if (!state.delivery.airport || !state.delivery.terminal || !state.delivery.flight || !state.delivery.pickupTime) throw new Error("Please complete all airport pickup details.");
+                state.delivery.detail = `${state.delivery.airport} · ${state.delivery.terminal} · ${state.delivery.flight} · ${state.delivery.pickupTime}`;
             }
 
             if (state.step === 3) {
@@ -2339,7 +2890,7 @@ function wireCheckoutStep(state, overlay) {
         button.textContent = "PROCESSING ORDER...";
 
         try {
-            const result = await checkoutCart();
+            const result = await checkoutCart(state);
             overlay.remove();
             await loadProducts();
             await updateCartCount();
@@ -2397,7 +2948,7 @@ async function openCheckoutFlow(cart) {
     await renderCheckoutStep(state);
 }
 
-async function checkoutCart() {
+async function checkoutCart(state = null) {
     const token = getToken();
     if (!token) {
         throw new Error("Please sign in again.");
@@ -2406,8 +2957,16 @@ async function checkoutCart() {
     const response = await fetch("/orders/checkout", {
         method: "POST",
         headers: {
-            Authorization: `Bearer ${token}`
-        }
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            coupon_code: state?.couponCode || null,
+            shipping_address: state ? `${state.shipping.fullName}, ${state.shipping.address}, ${state.shipping.postalCode} ${state.shipping.city}, ${state.shipping.country}` : null,
+            payment_method: state?.payment?.method || "demo_card",
+            delivery_type: state?.delivery?.method === "airport_pickup" ? "airport_pickup" : "home_delivery",
+            pickup_details: state?.delivery?.method === "airport_pickup" ? state.delivery.detail : null
+        })
     });
 
     const data = await readResponseData(response);
@@ -2536,6 +3095,9 @@ async function openMyOrdersModal() {
                                     <button class="terminal-secondary-button order-details-button" type="button" style="margin-left:8px;">
                                         VIEW DETAILS
                                     </button>
+                                    ${["pending", "paid"].includes(String(order.status).toLowerCase()) ? `
+                                        <button class="terminal-danger-button order-cancel-button" type="button" style="margin-left:8px;">CANCEL</button>
+                                    ` : ""}
                                 </div>
                             </div>
                         </div>
@@ -2543,6 +3105,7 @@ async function openMyOrdersModal() {
                 </div>
             `
     );
+    addModalBack(overlay, openAccountModal, "MY ACCOUNT");
 
     overlay.querySelectorAll(".order-details-button").forEach((button) => {
         button.addEventListener("click", async () => {
@@ -2562,19 +3125,46 @@ async function openMyOrdersModal() {
             }
         });
     });
+
+    overlay.querySelectorAll(".order-cancel-button").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const card = button.closest(".order-card");
+            const orderId = Number(card.dataset.orderId);
+            if (!window.confirm(`Cancel order #${orderId}? Stock will be restored.`)) return;
+            button.disabled = true;
+            try {
+                await apiRequest(`/orders/${orderId}/cancel`, { method: "PATCH" });
+                overlay.remove();
+                await loadProducts();
+                showToast(`Order #${orderId} cancelled.`, "success");
+                openMyOrdersModal();
+            } catch (error) {
+                button.disabled = false;
+                showToast(error.message, "error");
+            }
+        });
+    });
 }
 
 function openOrderDetailsModal(order) {
-    createModal(
+    const canReview = String(order.status || "").toLowerCase() === "delivered";
+    const statuses = ["paid", "shipped", "delivered"];
+    const currentStatusIndex = statuses.indexOf(String(order.status || "").toLowerCase());
+    const overlay = createModal(
         `ORDER #${order.id}`,
         "ORDER DETAILS",
         `
             <div class="order-card">
+                <div class="tracking-timeline">${statuses.map((status, index) => `<div class="tracking-step ${index <= currentStatusIndex ? "complete" : ""}"><span>${index + 1}</span><strong>${status.toUpperCase()}</strong></div>`).join("")}</div>
                 <div class="order-card-header">
                     <div>
                         <h3>ORDER #${order.id}</h3>
                         <p>${formatDate(order.created_at)}</p>
                         <p>Total: ${formatMoney(order.total)}</p>
+                        ${order.discount_total ? `<p>Discount: -${formatMoney(order.discount_total)}</p>` : ""}
+                        ${order.tracking_code ? `<p>Tracking: ${escapeHtml(order.tracking_code)}</p>` : ""}
+                        ${order.delivery_type === "airport_pickup" ? `<p>Airport pickup: ${escapeHtml(order.pickup_details)}</p>` : ""}
+                        ${order.bundle_name ? `<p>Travel Kit: ${escapeHtml(order.bundle_name)} · saved ${formatMoney(order.bundle_discount)}</p>` : ""}
                     </div>
                     <span class="order-status">${escapeHtml(order.status)}</span>
                 </div>
@@ -2584,6 +3174,20 @@ function openOrderDetailsModal(order) {
                             <span>${escapeHtml(item.product_name)} × ${Number(item.quantity)}</span>
                             <strong>${formatMoney(item.subtotal)}</strong>
                         </div>
+                        ${canReview ? `
+                            <form class="delivered-review-form checkout-review-block" data-product-id="${Number(item.product_id)}" style="margin-top:12px;">
+                                <strong>REVIEW ${escapeHtml(item.product_name)}</strong>
+                                <div class="terminal-form-group" style="margin-top:10px;">
+                                    <label>RATING</label>
+                                    <select class="delivered-review-rating">
+                                        <option value="5">5 - Excellent</option><option value="4">4 - Very good</option>
+                                        <option value="3">3 - Good</option><option value="2">2 - Fair</option><option value="1">1 - Poor</option>
+                                    </select>
+                                </div>
+                                <div class="terminal-form-group"><label>COMMENT</label><textarea class="delivered-review-comment" required></textarea></div>
+                                <button class="terminal-gold-button" type="submit">REVIEW PRODUCT</button>
+                            </form>
+                        ` : ""}
                     `).join("")}
                 </div>
             </div>
@@ -2593,18 +3197,39 @@ function openOrderDetailsModal(order) {
         `
     );
 
-    const latestOverlay = [...document.querySelectorAll(".terminal-modal-overlay")].pop();
-    latestOverlay?.querySelector("#back-to-orders")?.addEventListener("click", () => {
-        latestOverlay.remove();
+    overlay.querySelector("#back-to-orders")?.addEventListener("click", () => {
+        overlay.remove();
         openMyOrdersModal();
+    });
+
+    overlay.querySelectorAll(".delivered-review-form").forEach((form) => {
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const button = form.querySelector("button[type='submit']");
+            button.disabled = true;
+            button.textContent = "SAVING REVIEW...";
+            try {
+                await apiRequest(`/products/${Number(form.dataset.productId)}/reviews`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        rating: Number(form.querySelector(".delivered-review-rating").value),
+                        comment: form.querySelector(".delivered-review-comment").value.trim()
+                    })
+                });
+                form.innerHTML = `<div class="terminal-message success" style="display:block;">Review saved · VERIFIED PURCHASE</div>`;
+                showToast("Review saved.", "success");
+            } catch (error) {
+                button.disabled = false;
+                button.textContent = "REVIEW PRODUCT";
+                showToast(error.message, "error");
+            }
+        });
     });
 }
 
-function openBestDealsModal() {
-    const deals = [...allProducts]
-        .filter((product) => Number(product.stock || 0) > 0)
-        .sort((a, b) => Number(a.price) - Number(b.price))
-        .slice(0, 6);
+async function openBestDealsModal() {
+    let deals = [];
+    try { deals = await apiRequest("/bundles"); } catch (error) { showToast(error.message, "error"); return; }
 
     const overlay = createModal(
         "BEST DEALS",
@@ -2614,17 +3239,21 @@ function openBestDealsModal() {
             : `
                 <div class="deals-list">
                     ${deals.map((product) => `
-                        <div class="deal-row" data-product-id="${product.id}">
+                        <div class="deal-row bundle-row" data-bundle-id="${product.id}">
+                            <img src="${escapeHtml(product.image_url || "")}" alt="${escapeHtml(product.name)}">
                             <div>
                                 <h3>${escapeHtml(product.name)}</h3>
                                 <p>${escapeHtml(product.description)}</p>
+                                <p>${product.products.map((item) => escapeHtml(item.name)).join(" · ")}</p>
                             </div>
                             <div style="text-align:right; min-width:130px;">
+                                <del>${formatMoney(product.original_price)}</del>
                                 <strong style="display:block; color:#e8ad34; margin-bottom:8px;">
-                                    ${formatMoney(product.price)}
+                                    ${formatMoney(product.bundle_price)}
                                 </strong>
-                                <button class="terminal-secondary-button deal-add-button" type="button">
-                                    ADD TO CART
+                                <small>SAVE ${formatMoney(product.you_save)}</small>
+                                <button class="terminal-secondary-button deal-add-button" type="button" ${product.available ? "" : "disabled"}>
+                                    ${product.available ? "ADD KIT TO CART" : "UNAVAILABLE"}
                                 </button>
                             </div>
                         </div>
@@ -2636,13 +3265,15 @@ function openBestDealsModal() {
     overlay.querySelectorAll(".deal-add-button").forEach((button) => {
         button.addEventListener("click", async () => {
             const row = button.closest(".deal-row");
-            const productId = Number(row.dataset.productId);
+            const bundleId = Number(row.dataset.bundleId);
             button.disabled = true;
             const originalText = button.textContent;
             button.textContent = "ADDING...";
 
             try {
-                await addToCart(productId, 1);
+                if (!requireLogin()) return;
+                await apiRequest(`/bundles/${bundleId}/add-to-cart`, { method: "POST" });
+                await updateCartCount();
                 button.textContent = "ADDED";
             } catch (error) {
                 button.disabled = false;
@@ -2651,6 +3282,21 @@ function openBestDealsModal() {
             }
         });
     });
+}
+
+function openJourneyBuilder() {
+    const overlay = createModal("BUILD YOUR JOURNEY", "PERSONAL TRAVEL CURATION", `<form id="journey-form"><div class="terminal-form-row"><div class="terminal-form-group"><label>TRIP TYPE</label><select id="journey-type"><option value="leisure">Leisure</option><option value="business">Business</option></select></div><div class="terminal-form-group"><label>FLIGHT</label><select id="journey-flight"><option value="long_haul">Long-haul</option><option value="short_haul">Short-haul</option></select></div></div><div class="terminal-form-row"><div class="terminal-form-group"><label>CLIMATE</label><select id="journey-climate"><option value="mild">Mild</option><option value="cold">Cold</option><option value="warm">Warm</option></select></div><div class="terminal-form-group"><label>DURATION</label><select id="journey-duration"><option value="weekend">Weekend</option><option value="one_week">One week</option><option value="extended">Extended</option></select></div></div><div class="terminal-form-group"><label>ANYTHING ELSE?</label><input id="journey-query" placeholder="Example: I need to sleep and work on the flight"></div><button class="terminal-gold-button" type="submit">BUILD MY RECOMMENDATIONS</button></form><div id="journey-results"></div>`);
+    overlay.querySelector("#journey-form").onsubmit = async (event) => {
+        event.preventDefault();
+        const products = await apiRequest("/journey/recommendations", { method: "POST", body: JSON.stringify({ trip_type: overlay.querySelector("#journey-type").value, flight: overlay.querySelector("#journey-flight").value, climate: overlay.querySelector("#journey-climate").value, duration: overlay.querySelector("#journey-duration").value, query: overlay.querySelector("#journey-query").value }) });
+        overlay.querySelector("#journey-results").innerHTML = `<div class="journey-results">${products.map((item) => `<div class="order-card"><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.reason)}</p><strong>${formatMoney(item.price)}</strong><button class="terminal-secondary-button journey-add" data-id="${item.id}" type="button">ADD TO CART</button></div>`).join("")}</div>`;
+        overlay.querySelectorAll(".journey-add").forEach((button) => button.onclick = async () => { await addToCart(Number(button.dataset.id), 1); button.textContent = "ADDED"; });
+    };
+}
+
+function openTerminalAssistant() {
+    const overlay = createModal("ASK TERMINAL ONE", "YOUR TRAVEL SHOPPING ASSISTANT", `<div class="checkout-review-block"><strong>TRY ASKING</strong><p>“What should I pack for a long flight?”</p><p>“I need technology for a business trip.”</p><p>“Show me a compact weekend setup.”</p></div><form id="assistant-form"><div class="terminal-form-group"><label>YOUR JOURNEY</label><input id="assistant-query" required placeholder="How can we help you travel better?"></div><button class="terminal-gold-button">GET RECOMMENDATIONS</button></form><div id="assistant-results"></div>`);
+    overlay.querySelector("#assistant-form").onsubmit = async (event) => { event.preventDefault(); const items = await apiRequest("/journey/recommendations", { method: "POST", body: JSON.stringify({ query: overlay.querySelector("#assistant-query").value }) }); overlay.querySelector("#assistant-results").innerHTML = `<div class="checkout-review-block"><strong>TERMINAL ONE RECOMMENDS</strong>${items.map((item) => `<p><button class="assistant-product terminal-secondary-button" data-id="${item.id}">${escapeHtml(item.name)} · ${formatMoney(item.price)}</button></p>`).join("") || "<p>Try adding details about flight length, climate or trip type.</p>"}</div>`; overlay.querySelectorAll(".assistant-product").forEach((button) => button.onclick = () => { const p = allProducts.find((x) => Number(x.id) === Number(button.dataset.id)); if (p) { overlay.remove(); openProductModal(p); } }); };
 }
 
 async function loadCategoriesForAdmin(selectElement) {
@@ -2878,6 +3524,7 @@ async function openAdminOrdersModal() {
             </div>
         `
     );
+    addModalBack(overlay, openAdminManagementModal, "BACK TO ADMIN");
 
     const message = overlay.querySelector("#admin-orders-message");
     const ordersList = overlay.querySelector("#admin-orders-list");
@@ -2970,6 +3617,341 @@ async function openAdminOrdersModal() {
     await loadAdminOrdersView();
 }
 
+async function getAdminCustomers() {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch("/users/", {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readResponseData(response);
+
+    if (response.status === 401) {
+        clearToken();
+        updateAccountInterface();
+        throw new Error("Your session has expired. Please sign in again.");
+    }
+    if (response.status === 403) throw new Error("Admin access required.");
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not load customers"));
+    return data;
+}
+
+async function updateAdminCustomer(customerId, customerData) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}`, {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(customerData)
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not update customer"));
+    return data;
+}
+
+async function updateAdminCustomerActivation(customerId, isActive) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}/activation`, {
+        method: "PATCH",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ is_active: isActive })
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not update account status"));
+    return data;
+}
+
+async function getAdminCustomerOrders(customerId) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}/orders`, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not load customer orders"));
+    return data;
+}
+
+function openAdminCustomerEditModal(customer) {
+    const overlay = createModal(
+        "EDIT CUSTOMER",
+        "TERMINAL ONE ADMIN",
+        `
+            <div id="admin-customer-edit-message" class="terminal-message"></div>
+            <form id="admin-customer-edit-form">
+                <div class="terminal-form-group">
+                    <label>FULL NAME</label>
+                    <input id="admin-customer-name" type="text" value="${escapeHtml(customer.name)}" required>
+                </div>
+                <div class="terminal-form-group">
+                    <label>EMAIL</label>
+                    <input id="admin-customer-email" type="email" value="${escapeHtml(customer.email)}" required>
+                </div>
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PHONE</label>
+                        <input id="admin-customer-phone" type="text" value="${escapeHtml(customer.phone || "")}">
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>COUNTRY</label>
+                        <input id="admin-customer-country" type="text" value="${escapeHtml(customer.country || "")}">
+                    </div>
+                </div>
+                <div class="terminal-form-group">
+                    <label>ADDRESS</label>
+                    <input id="admin-customer-address" type="text" value="${escapeHtml(customer.address || "")}">
+                </div>
+                <div class="terminal-form-group">
+                    <label>ACCOUNT ROLE</label>
+                    <select id="admin-customer-role">
+                        <option value="customer" ${customer.is_admin ? "" : "selected"}>CUSTOMER</option>
+                        <option value="admin" ${customer.is_admin ? "selected" : ""}>ADMIN</option>
+                    </select>
+                </div>
+                <button class="terminal-gold-button" type="submit">SAVE CUSTOMER</button>
+                <button id="admin-customer-edit-back" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">BACK TO CUSTOMERS</button>
+            </form>
+        `
+    );
+
+    const form = overlay.querySelector("#admin-customer-edit-form");
+    const message = overlay.querySelector("#admin-customer-edit-message");
+
+    overlay.querySelector("#admin-customer-edit-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = form.querySelector("button[type='submit']");
+        button.disabled = true;
+        button.textContent = "SAVING...";
+        message.className = "terminal-message";
+
+        try {
+            const updated = await updateAdminCustomer(customer.id, {
+                name: overlay.querySelector("#admin-customer-name").value.trim(),
+                email: overlay.querySelector("#admin-customer-email").value.trim(),
+                phone: overlay.querySelector("#admin-customer-phone").value.trim() || null,
+                country: overlay.querySelector("#admin-customer-country").value.trim() || null,
+                address: overlay.querySelector("#admin-customer-address").value.trim() || null,
+                is_admin: overlay.querySelector("#admin-customer-role").value === "admin"
+            });
+
+            if (currentUser && updated.id === currentUser.id) {
+                currentUser = { ...currentUser, ...updated };
+                updateAccountInterface();
+            }
+
+            overlay.remove();
+            showToast("Customer updated successfully.", "success");
+            openAdminCustomersModal();
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            button.disabled = false;
+            button.textContent = "SAVE CUSTOMER";
+        }
+    });
+}
+
+async function openAdminCustomerOrdersModal(customer) {
+    const overlay = createModal(
+        `CUSTOMER ORDERS`,
+        `${customer.name} · TERMINAL ONE ADMIN`,
+        `
+            <div id="admin-customer-orders-message" class="terminal-message"></div>
+            <div class="admin-toolbar">
+                <button id="admin-customer-orders-back" class="terminal-secondary-button" type="button">BACK TO CUSTOMERS</button>
+            </div>
+            <div id="admin-customer-orders-list" class="admin-orders-list">
+                <div class="admin-empty-state">Loading customer orders...</div>
+            </div>
+        `
+    );
+
+    overlay.querySelector("#admin-customer-orders-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
+
+    const list = overlay.querySelector("#admin-customer-orders-list");
+    const message = overlay.querySelector("#admin-customer-orders-message");
+
+    try {
+        const data = await getAdminCustomerOrders(customer.id);
+        list.innerHTML = "";
+
+        if (!data.orders.length) {
+            list.innerHTML = `<div class="admin-empty-state">This customer has no orders.</div>`;
+            return;
+        }
+
+        data.orders.forEach((order) => {
+            const row = document.createElement("div");
+            row.className = "admin-order-row";
+            row.innerHTML = `
+                <div class="admin-order-top">
+                    <div class="admin-order-customer">
+                        <h3>ORDER #${Number(order.id)}</h3>
+                        <div class="admin-order-meta">${formatDate(order.created_at)} · ${formatMoney(order.total)} · ${escapeHtml(String(order.status).toUpperCase())}</div>
+                    </div>
+                </div>
+                ${getAdminOrderItemsHtml(order)}
+            `;
+            list.appendChild(row);
+        });
+    } catch (error) {
+        list.innerHTML = "";
+        message.textContent = error.message;
+        message.className = "terminal-message error";
+    }
+}
+
+async function openAdminCustomersModal() {
+    if (!currentUser || !currentUser.is_admin) {
+        openLoginModal();
+        return;
+    }
+
+    const overlay = createModal(
+        "CUSTOMER MANAGEMENT",
+        "TERMINAL ONE ADMIN",
+        `
+            <div id="admin-customers-message" class="terminal-message"></div>
+            <div class="admin-toolbar">
+                <input id="admin-customer-search" class="admin-customer-search" type="search" placeholder="Search by name or email...">
+                <button id="admin-customers-back" class="terminal-secondary-button" type="button">BACK TO ADMIN</button>
+                <button id="admin-customers-refresh" class="terminal-gold-button" type="button">REFRESH CUSTOMERS</button>
+            </div>
+            <div id="admin-customers-list" class="admin-customers-list">
+                <div class="admin-empty-state">Loading customers...</div>
+            </div>
+        `
+    );
+    addModalBack(overlay, openAdminManagementModal, "BACK TO ADMIN");
+
+    const list = overlay.querySelector("#admin-customers-list");
+    const message = overlay.querySelector("#admin-customers-message");
+    const search = overlay.querySelector("#admin-customer-search");
+    const refresh = overlay.querySelector("#admin-customers-refresh");
+    let customers = [];
+
+    overlay.querySelector("#admin-customers-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminManagementModal();
+    });
+
+    function renderCustomers() {
+        const term = search.value.trim().toLowerCase();
+        const filtered = customers.filter((customer) => {
+            return String(customer.name || "").toLowerCase().includes(term) ||
+                String(customer.email || "").toLowerCase().includes(term);
+        });
+
+        list.innerHTML = "";
+
+        if (!filtered.length) {
+            list.innerHTML = `<div class="admin-empty-state">No customers found.</div>`;
+            return;
+        }
+
+        filtered.forEach((customer) => {
+            const isActive = customer.is_active !== false;
+            const row = document.createElement("div");
+            row.className = `admin-customer-row ${isActive ? "" : "inactive"}`;
+            row.innerHTML = `
+                <div class="admin-customer-info">
+                    <h3>${escapeHtml(customer.name)} · #${Number(customer.id)}</h3>
+                    <div class="admin-customer-meta">
+                        ${escapeHtml(customer.email)}<br>
+                        ${escapeHtml(customer.phone || "No phone")} · ${escapeHtml(customer.country || "No country")}<br>
+                        ${escapeHtml(customer.address || "No address")}<br>
+                        Registered: ${formatDate(customer.created_at)} · Orders: ${Number(customer.total_orders || 0)} · Spent: ${formatMoney(customer.total_spent)}
+                    </div>
+                    <div class="admin-customer-badges">
+                        <span class="admin-customer-badge ${customer.is_admin ? "admin" : ""}">${customer.is_admin ? "ADMIN" : "CUSTOMER"}</span>
+                        <span class="admin-customer-badge ${isActive ? "active" : "inactive"}">${isActive ? "ACTIVE" : "INACTIVE"}</span>
+                    </div>
+                </div>
+                <div class="admin-customer-actions">
+                    <button class="terminal-secondary-button customer-orders-button" type="button">ORDERS</button>
+                    <button class="terminal-secondary-button customer-edit-button" type="button">EDIT</button>
+                    <button class="${isActive ? "terminal-danger-button" : "terminal-gold-button"} customer-status-button" type="button" style="width:auto;">${isActive ? "DEACTIVATE" : "ACTIVATE"}</button>
+                </div>
+            `;
+
+            row.querySelector(".customer-orders-button").addEventListener("click", () => {
+                overlay.remove();
+                openAdminCustomerOrdersModal(customer);
+            });
+
+            row.querySelector(".customer-edit-button").addEventListener("click", () => {
+                overlay.remove();
+                openAdminCustomerEditModal(customer);
+            });
+
+            const statusButton = row.querySelector(".customer-status-button");
+            statusButton.addEventListener("click", async () => {
+                const action = isActive ? "deactivate" : "activate";
+                const confirmed = window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${customer.name}?`);
+                if (!confirmed) return;
+
+                statusButton.disabled = true;
+                statusButton.textContent = "SAVING...";
+
+                try {
+                    await updateAdminCustomerActivation(customer.id, !isActive);
+                    showToast(`Customer ${action}d successfully.`, "success");
+                    await loadCustomers();
+                } catch (error) {
+                    message.textContent = error.message;
+                    message.className = "terminal-message error";
+                    statusButton.disabled = false;
+                    statusButton.textContent = isActive ? "DEACTIVATE" : "ACTIVATE";
+                }
+            });
+
+            list.appendChild(row);
+        });
+    }
+
+    async function loadCustomers() {
+        message.className = "terminal-message";
+        list.innerHTML = `<div class="admin-empty-state">Loading customers...</div>`;
+        refresh.disabled = true;
+        refresh.textContent = "LOADING...";
+
+        try {
+            customers = await getAdminCustomers();
+            renderCustomers();
+        } catch (error) {
+            list.innerHTML = "";
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            refresh.disabled = false;
+            refresh.textContent = "REFRESH CUSTOMERS";
+        }
+    }
+
+    search.addEventListener("input", renderCustomers);
+    refresh.addEventListener("click", loadCustomers);
+    await loadCustomers();
+}
+
 async function openAdminManagementModal() {
     if (!currentUser || !currentUser.is_admin) {
         openLoginModal();
@@ -2982,6 +3964,12 @@ async function openAdminManagementModal() {
         `
             <div id="admin-management-message" class="terminal-message"></div>
             <div class="admin-toolbar">
+                <button id="admin-dashboard-button" class="terminal-secondary-button" type="button">
+                    DASHBOARD
+                </button>
+                <button id="admin-manage-customers-button" class="terminal-secondary-button" type="button">
+                    MANAGE CUSTOMERS
+                </button>
                 <button id="admin-manage-orders-button" class="terminal-secondary-button" type="button">
                     MANAGE ORDERS
                 </button>
@@ -2994,11 +3982,24 @@ async function openAdminManagementModal() {
             </div>
         `
     );
+    addModalBack(overlay, () => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" }), "STORE");
 
     const message = overlay.querySelector("#admin-management-message");
     const productsList = overlay.querySelector("#admin-products-list");
     const addButton = overlay.querySelector("#admin-add-product-button");
     const ordersButton = overlay.querySelector("#admin-manage-orders-button");
+    const customersButton = overlay.querySelector("#admin-manage-customers-button");
+    const dashboardButton = overlay.querySelector("#admin-dashboard-button");
+
+    dashboardButton.addEventListener("click", () => {
+        overlay.remove();
+        openAdminDashboardModal();
+    });
+
+    customersButton.addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
 
     ordersButton.addEventListener("click", () => {
         overlay.remove();
@@ -3118,6 +4119,7 @@ function openAdminProductModal() {
             </form>
         `
     );
+    addModalBack(overlay, openAdminManagementModal, "ADMIN");
 
     const form = overlay.querySelector("#admin-product-form");
     const message = overlay.querySelector("#admin-message");
@@ -3236,6 +4238,7 @@ function openAdminEditProductModal(product) {
             </form>
         `
     );
+    addModalBack(overlay, openAdminManagementModal, "ADMIN");
 
     const form = overlay.querySelector("#admin-edit-product-form");
     const message = overlay.querySelector("#admin-edit-message");
@@ -3321,6 +4324,246 @@ function openAdminEditProductModal(product) {
     });
 }
 
+async function apiRequest(url, options = {}) {
+    const token = getToken();
+    const headers = { ...(options.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+    const response = await fetch(url, { ...options, headers });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Request failed"));
+    return data;
+}
+
+function openAccountModal() {
+    if (!requireLogin()) return;
+    const overlay = createModal(
+        "MY ACCOUNT",
+        "TERMINAL ONE ACCOUNT",
+        `
+            <div class="admin-summary-grid">
+                <button id="account-profile" class="terminal-secondary-button" type="button">EDIT PROFILE</button>
+                <button id="account-orders" class="terminal-secondary-button" type="button">MY ORDERS</button>
+                <button id="account-addresses" class="terminal-secondary-button" type="button">MY ADDRESSES</button>
+                <button id="account-wishlist" class="terminal-secondary-button" type="button">MY WISHLIST</button>
+                <button id="account-rewards" class="terminal-secondary-button" type="button">MY T1 MILES</button>
+                <button id="account-password" class="terminal-secondary-button" type="button">CHANGE PASSWORD</button>
+            </div>
+            <button id="account-sign-out" class="terminal-danger-button" type="button" style="width:100%; margin-top:18px;">SIGN OUT</button>
+        `
+    );
+    addModalBack(overlay, () => document.getElementById("products")?.scrollIntoView({ behavior: "smooth" }), "STORE");
+    overlay.querySelector("#account-profile").onclick = () => { overlay.remove(); openProfileModal(); };
+    overlay.querySelector("#account-orders").onclick = () => { overlay.remove(); openMyOrdersModal(); };
+    overlay.querySelector("#account-addresses").onclick = () => { overlay.remove(); openAddressesModal(); };
+    overlay.querySelector("#account-wishlist").onclick = () => { overlay.remove(); openWishlistModal(); };
+    overlay.querySelector("#account-rewards").onclick = async () => { overlay.remove(); await openRewardsModal(); };
+    overlay.querySelector("#account-password").onclick = () => { overlay.remove(); openChangePasswordModal(); };
+    overlay.querySelector("#account-sign-out").onclick = () => { overlay.remove(); logoutUser(); };
+}
+
+async function openRewardsModal() {
+    try {
+        const rewards = await apiRequest("/rewards/me");
+        const percentage = rewards.next_tier_at ? Math.min(100, Math.round(Number(rewards.miles) / Number(rewards.next_tier_at) * 100)) : 100;
+        const overlay = createModal("MY T1 MILES", "TERMINAL ONE REWARDS", `<div class="rewards-card"><span>${escapeHtml(rewards.tier)}</span><strong>${Number(rewards.miles).toLocaleString()} MILES</strong><p>Earn 1 mile for every €1 after an order is delivered.</p><div class="rewards-progress"><i style="width:${percentage}%"></i></div><p>${rewards.miles_to_next_tier ? `${Number(rewards.miles_to_next_tier)} miles to your next tier.` : "You reached the highest tier."}</p></div>`);
+        addModalBack(overlay, openAccountModal, "MY ACCOUNT");
+    } catch (error) { showToast(error.message, "error"); openAccountModal(); }
+}
+
+function openProfileModal() {
+    const overlay = createModal("EDIT PROFILE", "TERMINAL ONE ACCOUNT", `
+        <div id="profile-message" class="terminal-message"></div>
+        <form id="profile-form">
+            <div class="terminal-form-group"><label>FULL NAME</label><input id="profile-name" value="${escapeHtml(currentUser.name || "")}" required></div>
+            <div class="terminal-form-group"><label>EMAIL</label><input value="${escapeHtml(currentUser.email || "")}" disabled></div>
+            <div class="terminal-form-row">
+                <div class="terminal-form-group"><label>PHONE</label><input id="profile-phone" value="${escapeHtml(currentUser.phone || "")}"></div>
+                <div class="terminal-form-group"><label>COUNTRY</label><input id="profile-country" value="${escapeHtml(currentUser.country || "")}"></div>
+            </div>
+            <div class="terminal-form-group"><label>ADDRESS</label><input id="profile-address" value="${escapeHtml(currentUser.address || "")}"></div>
+            <button class="terminal-gold-button" type="submit">SAVE PROFILE</button>
+        </form>
+    `);
+    addModalBack(overlay, openAccountModal, "MY ACCOUNT");
+    const form = overlay.querySelector("#profile-form");
+    form.onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+            currentUser = await apiRequest("/profile", { method: "PUT", body: JSON.stringify({
+                name: overlay.querySelector("#profile-name").value.trim(),
+                phone: overlay.querySelector("#profile-phone").value.trim() || null,
+                country: overlay.querySelector("#profile-country").value.trim() || null,
+                address: overlay.querySelector("#profile-address").value.trim() || null
+            }) });
+            updateAccountInterface(); overlay.remove(); showToast("Profile updated.", "success");
+        } catch (error) {
+            const message = overlay.querySelector("#profile-message"); message.textContent = error.message; message.className = "terminal-message error";
+        }
+    };
+}
+
+async function openAddressesModal() {
+    const addresses = await apiRequest("/addresses");
+    const overlay = createModal("MY ADDRESSES", "DELIVERY DETAILS", `
+        <div id="address-message" class="terminal-message"></div>
+        <div class="orders-list">
+            ${addresses.map((address) => `<div class="order-card"><h3>${escapeHtml(address.label)} ${address.is_default ? "· DEFAULT" : ""}</h3><p>${escapeHtml(address.recipient_name)}</p><p>${escapeHtml(address.address_line)}, ${escapeHtml(address.postal_code)} ${escapeHtml(address.city)}, ${escapeHtml(address.country)}</p><button class="terminal-danger-button address-delete" data-id="${address.id}" type="button">DELETE</button></div>`).join("") || `<div class="admin-empty-state">No saved addresses.</div>`}
+        </div>
+        <form id="address-form" style="margin-top:18px;">
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>LABEL</label><input id="address-label" value="Home" required></div><div class="terminal-form-group"><label>RECIPIENT</label><input id="address-recipient" value="${escapeHtml(currentUser.name || "")}" required></div></div>
+            <div class="terminal-form-group"><label>ADDRESS</label><input id="address-line" required></div>
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>CITY</label><input id="address-city" required></div><div class="terminal-form-group"><label>POSTAL CODE</label><input id="address-postal" required></div></div>
+            <div class="terminal-form-group"><label>COUNTRY</label><input id="address-country" value="${escapeHtml(currentUser.country || "Portugal")}" required></div>
+            <button class="terminal-gold-button" type="submit">SAVE NEW ADDRESS</button>
+        </form>
+    `);
+    addModalBack(overlay, openAccountModal, "MY ACCOUNT");
+    overlay.querySelectorAll(".address-delete").forEach((button) => button.onclick = async () => {
+        await apiRequest(`/addresses/${button.dataset.id}`, { method: "DELETE" }); overlay.remove(); openAddressesModal();
+    });
+    overlay.querySelector("#address-form").onsubmit = async (event) => {
+        event.preventDefault();
+        await apiRequest("/addresses", { method: "POST", body: JSON.stringify({
+            label: overlay.querySelector("#address-label").value, recipient_name: overlay.querySelector("#address-recipient").value,
+            phone: currentUser.phone || null, address_line: overlay.querySelector("#address-line").value,
+            city: overlay.querySelector("#address-city").value, postal_code: overlay.querySelector("#address-postal").value,
+            country: overlay.querySelector("#address-country").value, is_default: addresses.length === 0
+        }) });
+        overlay.remove(); showToast("Address saved.", "success"); openAddressesModal();
+    };
+}
+
+async function openWishlistModal() {
+    const items = await apiRequest("/wishlist");
+    wishlistProductIds = new Set(items.map((item) => Number(item.product_id)));
+    const overlay = createModal("MY WISHLIST", "SAVED FOR LATER", `
+        <div class="orders-list">${items.map((item) => `<div class="order-card" data-product-id="${item.product_id}"><h3>${escapeHtml(item.name)}</h3><p>${formatMoney(item.price)} · ${Number(item.stock)} in stock</p><button class="terminal-secondary-button wishlist-view" type="button">VIEW PRODUCT</button><button class="terminal-gold-button wishlist-cart" type="button" style="width:auto; margin-left:8px;">ADD TO CART</button><button class="terminal-danger-button wishlist-remove" type="button" style="margin-left:8px;">REMOVE</button></div>`).join("") || `<div class="admin-empty-state">Your wishlist is empty.</div>`}</div>
+    `);
+    addModalBack(overlay, openAccountModal, "MY ACCOUNT");
+    overlay.querySelectorAll(".wishlist-view").forEach((button) => button.onclick = () => {
+        const id = Number(button.closest(".order-card").dataset.productId);
+        const product = allProducts.find((item) => Number(item.id) === id);
+        if (product) { overlay.remove(); openProductModal(product); }
+    });
+    overlay.querySelectorAll(".wishlist-cart").forEach((button) => button.onclick = async () => {
+        const id = Number(button.closest(".order-card").dataset.productId); await addToCart(id, 1); showToast("Added to cart.", "success");
+    });
+    overlay.querySelectorAll(".wishlist-remove").forEach((button) => button.onclick = async () => {
+        const id = Number(button.closest(".order-card").dataset.productId); await apiRequest(`/wishlist/${id}`, { method: "DELETE" }); wishlistProductIds.delete(id); renderProducts(); overlay.remove(); openWishlistModal();
+    });
+}
+
+function openChangePasswordModal() {
+    const overlay = createModal("CHANGE PASSWORD", "ACCOUNT SECURITY", `<div id="password-message" class="terminal-message"></div><form id="password-form"><div class="terminal-form-group"><label>CURRENT PASSWORD</label><input id="password-current" type="password" required></div><div class="terminal-form-group"><label>NEW PASSWORD</label><input id="password-new" type="password" minlength="6" required></div><button class="terminal-gold-button" type="submit">CHANGE PASSWORD</button></form>`);
+    addModalBack(overlay, openAccountModal, "MY ACCOUNT");
+    overlay.querySelector("#password-form").onsubmit = async (event) => {
+        event.preventDefault();
+        try { await apiRequest("/users/change-password", { method: "PUT", body: JSON.stringify({ current_password: overlay.querySelector("#password-current").value, new_password: overlay.querySelector("#password-new").value }) }); overlay.remove(); showToast("Password changed.", "success"); }
+        catch (error) { const message = overlay.querySelector("#password-message"); message.textContent = error.message; message.className = "terminal-message error"; }
+    };
+}
+
+function openForgotPasswordModal() {
+    const overlay = createModal("RESET PASSWORD", "TERMINAL ONE ACCOUNT", `<div id="reset-message" class="terminal-message"></div><form id="forgot-form"><div class="terminal-form-group"><label>EMAIL</label><input id="forgot-email" type="email" required></div><button class="terminal-gold-button" type="submit">GENERATE RESET TOKEN</button></form><form id="reset-form" style="margin-top:18px;"><div class="terminal-form-group"><label>RESET TOKEN</label><input id="reset-token" required></div><div class="terminal-form-group"><label>NEW PASSWORD</label><input id="reset-new-password" type="password" minlength="6" required></div><button class="terminal-secondary-button" type="submit" style="width:100%;">RESET PASSWORD</button></form>`);
+    const message = overlay.querySelector("#reset-message");
+    overlay.querySelector("#forgot-form").onsubmit = async (event) => { event.preventDefault(); try { const data = await apiRequest("/password/forgot", { method: "POST", body: JSON.stringify({ email: overlay.querySelector("#forgot-email").value }) }); if (data.demo_token) overlay.querySelector("#reset-token").value = data.demo_token; message.textContent = data.message; message.className = "terminal-message success"; } catch (error) { message.textContent = error.message; message.className = "terminal-message error"; } };
+    overlay.querySelector("#reset-form").onsubmit = async (event) => { event.preventDefault(); try { await apiRequest("/password/reset", { method: "POST", body: JSON.stringify({ token: overlay.querySelector("#reset-token").value, new_password: overlay.querySelector("#reset-new-password").value }) }); overlay.remove(); showToast("Password reset. You can sign in now.", "success"); openLoginModal(); } catch (error) { message.textContent = error.message; message.className = "terminal-message error"; } };
+}
+
+async function downloadAdminExport(resource) {
+    const response = await fetch(`/admin/export/${resource}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!response.ok) throw new Error("Export failed");
+    const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `terminal-one-${resource}.csv`; link.click(); URL.revokeObjectURL(url);
+}
+
+async function openAdminDashboardModal() {
+    const [dashboard, coupons, logs, analytics] = await Promise.all([apiRequest("/admin/dashboard"), apiRequest("/admin/coupons"), apiRequest("/admin/audit-logs"), apiRequest("/admin/analytics")]);
+    const overlay = createModal("ADMIN DASHBOARD", "TERMINAL ONE ANALYTICS", `
+        <div class="admin-summary-grid"><div class="admin-summary-card"><span>Customers</span><strong>${dashboard.total_customers}</strong></div><div class="admin-summary-card"><span>Orders</span><strong>${dashboard.total_orders}</strong></div><div class="admin-summary-card"><span>Revenue</span><strong>${formatMoney(dashboard.total_revenue)}</strong></div><div class="admin-summary-card"><span>Low stock</span><strong>${dashboard.low_stock.length}</strong></div></div>
+        <div class="checkout-review-block"><strong>STORE PERFORMANCE</strong><p>Average order value: ${formatMoney(analytics.average_order_value)}</p><div class="analytics-bars">${Object.entries(analytics.orders_by_status || {}).map(([status, value]) => `<div><span>${escapeHtml(status.toUpperCase())}</span><i style="width:${Math.min(100, Number(value) * 12)}%"></i><strong>${Number(value)}</strong></div>`).join("") || "<p>No order data yet.</p>"}</div><p>${(analytics.revenue_over_time || []).map((row) => `${escapeHtml(row.month)}: ${formatMoney(row.revenue)}`).join(" · ") || "Revenue history will appear after the first order."}</p></div>
+        <div class="checkout-review-block"><strong>LOW STOCK ALERTS</strong>${dashboard.low_stock.map((p) => `<p>${escapeHtml(p.name)}: ${p.stock} remaining</p>`).join("") || "<p>No alerts.</p>"}</div>
+        <div class="admin-toolbar"><button data-export="customers" class="terminal-secondary-button">EXPORT CUSTOMERS</button><button data-export="products" class="terminal-secondary-button">EXPORT PRODUCTS</button><button data-export="orders" class="terminal-secondary-button">EXPORT ORDERS</button></div>
+        <div class="checkout-review-block"><strong>COUPONS</strong>${coupons.map((c) => `<div class="order-card" data-coupon-id="${c.id}" style="margin-top:12px;"><h3>${escapeHtml(c.code)} · <span style="color:${c.is_active ? "#55c985" : "#df6b6b"};">${c.is_active ? "ACTIVE" : "INACTIVE"}</span></h3><p>${c.discount_value}${c.discount_type === "percentage" ? "%" : "€"} · Minimum ${formatMoney(c.minimum_order)} · Used ${Number(c.times_used || 0)}${c.usage_limit === null ? "" : ` / ${Number(c.usage_limit)}`}</p><button class="terminal-secondary-button coupon-edit" type="button">EDIT</button>${c.is_active ? `<button class="terminal-danger-button coupon-deactivate" type="button" style="margin-left:8px;">DEACTIVATE</button>` : ""}</div>`).join("") || "<p>No coupons.</p>"}</div>
+        <form id="coupon-form">
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>CODE</label><input id="coupon-code" required></div><div class="terminal-form-group"><label>VALUE</label><input id="coupon-value" type="number" min="0.01" step="0.01" required></div></div>
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>TYPE</label><select id="coupon-type"><option value="percentage">PERCENTAGE</option><option value="fixed">FIXED €</option></select></div><div class="terminal-form-group"><label>MINIMUM ORDER (€)</label><input id="coupon-minimum" type="number" min="0" step="0.01" value="0"></div></div>
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>MAXIMUM USES</label><input id="coupon-limit" type="number" min="1" placeholder="Unlimited"></div><div class="terminal-form-group"><label>EXPIRATION DATE</label><input id="coupon-expiration" type="datetime-local"></div></div>
+            <button class="terminal-gold-button" type="submit">CREATE COUPON</button>
+        </form>
+        <div class="checkout-review-block" style="margin-top:18px;"><strong>RECENT ADMIN ACTIVITY</strong>${logs.slice(0, 20).map((log) => `<p>${formatDate(log.created_at)} · ${escapeHtml(log.action)} ${escapeHtml(log.entity_type)} #${escapeHtml(log.entity_id || "")}</p>`).join("") || "<p>No activity yet.</p>"}</div>
+    `);
+    addModalBack(overlay, openAdminManagementModal, "ADMIN");
+    overlay.querySelectorAll("[data-export]").forEach((button) => button.onclick = () => downloadAdminExport(button.dataset.export));
+    overlay.querySelectorAll(".coupon-edit").forEach((button) => button.onclick = () => {
+        const id = Number(button.closest("[data-coupon-id]").dataset.couponId);
+        const coupon = coupons.find((item) => Number(item.id) === id);
+        overlay.remove();
+        openCouponEditModal(coupon);
+    });
+    overlay.querySelectorAll(".coupon-deactivate").forEach((button) => button.onclick = async () => {
+        const card = button.closest("[data-coupon-id]");
+        const id = Number(card.dataset.couponId);
+        const coupon = coupons.find((item) => Number(item.id) === id);
+        if (!window.confirm(`Are you sure you want to deactivate ${coupon.code}?`)) return;
+        button.disabled = true;
+        try {
+            await apiRequest(`/admin/coupons/${id}`, { method: "DELETE" });
+            overlay.remove(); showToast(`${coupon.code} deactivated.`, "success"); openAdminDashboardModal();
+        } catch (error) { button.disabled = false; showToast(error.message, "error"); }
+    });
+    overlay.querySelector("#coupon-form").onsubmit = async (event) => {
+        event.preventDefault();
+        const expiration = overlay.querySelector("#coupon-expiration").value;
+        const limit = overlay.querySelector("#coupon-limit").value;
+        await apiRequest("/admin/coupons", { method: "POST", body: JSON.stringify({
+            code: overlay.querySelector("#coupon-code").value,
+            discount_type: overlay.querySelector("#coupon-type").value,
+            discount_value: Number(overlay.querySelector("#coupon-value").value),
+            minimum_order: Number(overlay.querySelector("#coupon-minimum").value || 0),
+            usage_limit: limit ? Number(limit) : null,
+            valid_until: expiration ? new Date(expiration).toISOString() : null,
+            is_active: true
+        }) });
+        overlay.remove(); showToast("Coupon created.", "success"); openAdminDashboardModal();
+    };
+}
+
+function openCouponEditModal(coupon) {
+    if (!coupon) return openAdminDashboardModal();
+    const validUntil = coupon.valid_until ? new Date(coupon.valid_until).toISOString().slice(0, 16) : "";
+    const overlay = createModal("EDIT COUPON", "TERMINAL ONE ADMIN", `
+        <div id="coupon-edit-message" class="terminal-message"></div>
+        <form id="coupon-edit-form">
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>CODE</label><input id="coupon-edit-code" value="${escapeHtml(coupon.code)}" required></div><div class="terminal-form-group"><label>STATUS</label><select id="coupon-edit-status"><option value="true" ${coupon.is_active ? "selected" : ""}>ACTIVE</option><option value="false" ${coupon.is_active ? "" : "selected"}>INACTIVE</option></select></div></div>
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>TYPE</label><select id="coupon-edit-type"><option value="percentage" ${coupon.discount_type === "percentage" ? "selected" : ""}>PERCENTAGE</option><option value="fixed" ${coupon.discount_type === "fixed" ? "selected" : ""}>FIXED €</option></select></div><div class="terminal-form-group"><label>VALUE</label><input id="coupon-edit-value" type="number" min="0.01" step="0.01" value="${Number(coupon.discount_value)}" required></div></div>
+            <div class="terminal-form-row"><div class="terminal-form-group"><label>MINIMUM ORDER (€)</label><input id="coupon-edit-minimum" type="number" min="0" step="0.01" value="${Number(coupon.minimum_order || 0)}"></div><div class="terminal-form-group"><label>MAXIMUM USES</label><input id="coupon-edit-limit" type="number" min="1" value="${coupon.usage_limit ?? ""}" placeholder="Unlimited"></div></div>
+            <div class="terminal-form-group"><label>EXPIRATION DATE</label><input id="coupon-edit-expiration" type="datetime-local" value="${validUntil}"></div>
+            <button class="terminal-gold-button" type="submit">SAVE COUPON</button>
+        </form>
+    `);
+    addModalBack(overlay, openAdminDashboardModal, "COUPONS");
+    overlay.querySelector("#coupon-edit-form").onsubmit = async (event) => {
+        event.preventDefault();
+        const expiration = overlay.querySelector("#coupon-edit-expiration").value;
+        const limit = overlay.querySelector("#coupon-edit-limit").value;
+        try {
+            await apiRequest(`/admin/coupons/${coupon.id}`, { method: "PUT", body: JSON.stringify({
+                code: overlay.querySelector("#coupon-edit-code").value,
+                discount_type: overlay.querySelector("#coupon-edit-type").value,
+                discount_value: Number(overlay.querySelector("#coupon-edit-value").value),
+                minimum_order: Number(overlay.querySelector("#coupon-edit-minimum").value || 0),
+                usage_limit: limit ? Number(limit) : null,
+                valid_until: expiration ? new Date(expiration).toISOString() : null,
+                is_active: overlay.querySelector("#coupon-edit-status").value === "true"
+            }) });
+            overlay.remove(); showToast("Coupon updated.", "success"); openAdminDashboardModal();
+        } catch (error) {
+            const message = overlay.querySelector("#coupon-edit-message"); message.textContent = error.message; message.className = "terminal-message error";
+        }
+    };
+}
+
 function setupNavigation() {
     cartButton?.addEventListener("click", openCartModal);
 
@@ -3334,10 +4577,19 @@ function setupNavigation() {
         openMyOrdersModal();
     });
 
+    wishlistLink?.addEventListener("click", (event) => {
+        event.preventDefault();
+        openWishlistModal();
+    });
+
     viewAllProductsLink?.addEventListener("click", (event) => {
         event.preventDefault();
         selectCategory(null);
     });
+    [catalogSort, catalogMinPrice, catalogMaxPrice].forEach((control) => control?.addEventListener("input", renderProducts));
+    document.getElementById("catalog-clear")?.addEventListener("click", () => { if (catalogSort) catalogSort.value = "name"; if (catalogMinPrice) catalogMinPrice.value = ""; if (catalogMaxPrice) catalogMaxPrice.value = ""; renderProducts(); });
+    document.getElementById("build-journey-button")?.addEventListener("click", openJourneyBuilder);
+    document.getElementById("ask-terminal-button")?.addEventListener("click", openTerminalAssistant);
 
     searchInput?.addEventListener("input", () => {
         activeSearchTerm = searchInput.value.trim();
@@ -3364,11 +4616,10 @@ async function initializeApp() {
     setupNavigation();
     loadLocationAndWeather();
 
-    await Promise.all([
-        loadProducts(),
-        loadCategories(),
-        loadCurrentUser()
-    ]);
+    await Promise.all([loadCategories(), loadCurrentUser()]);
+    await loadWishlistState();
+    await loadProducts();
+    await loadCatalogInsights();
 
     await updateCartCount();
 }
