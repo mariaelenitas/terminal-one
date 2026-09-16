@@ -357,10 +357,19 @@ def forgot_password(data: ForgotPasswordData, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     db.add(PasswordResetToken(user_id=user.id, token_hash=token_hash, expires_at=datetime.utcnow() + timedelta(minutes=30)))
     db.commit()
-    delivery = send_email(user.email, "Terminal One password reset", f"Your reset token is:\n\n{raw_token}\n\nIt expires in 30 minutes.")
-    if os.getenv("DEMO_MODE", "true").lower() == "true":
-        response["demo_token"] = raw_token
-        response["delivery"] = delivery["delivery"]
+    try:
+        send_email(
+            user.email,
+            "Terminal One password reset",
+            f"We received a request to reset your Terminal One password.\n\n"
+            f"Your verification code is:\n\n{raw_token}\n\n"
+            f"This code expires in 30 minutes and can only be used once.\n\n"
+            f"If you did not request a password reset, you can ignore this email."
+        )
+    except Exception:
+        db.delete(db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first())
+        db.commit()
+        raise HTTPException(status_code=503, detail="Password reset email could not be sent. Please try again later.")
     return response
 
 

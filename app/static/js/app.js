@@ -2644,25 +2644,21 @@ function checkoutPaymentStepHtml(state) {
 
             <div class="checkout-choice-grid">
                 <button class="checkout-choice ${method === "card" ? "active" : ""}" data-payment="card" type="button">
-                    <span class="payment-brand card">▣ CARD</span>
                     <strong>CREDIT / DEBIT CARD</strong>
                     <span>Visa, Mastercard and compatible cards</span>
                 </button>
 
                 <button class="checkout-choice ${method === "paypal" ? "active" : ""}" data-payment="paypal" type="button">
-                    <span class="checkout-payment-icon">P</span>
                     <strong>PAYPAL</strong>
                     <span>Simulated PayPal authorization</span>
                 </button>
 
                 <button class="checkout-choice ${method === "mbway" ? "active" : ""}" data-payment="mbway" type="button">
-                    <span class="payment-brand mbway"><span class="mb">MB</span><span class="way"> WAY</span></span>
                     <strong>MB WAY</strong>
                     <span>Mobile payment simulation</span>
                 </button>
 
                 <button class="checkout-choice ${method === "applepay" ? "active" : ""}" data-payment="applepay" type="button">
-                    <span class="payment-brand"> Pay</span>
                     <strong>APPLE PAY</strong>
                     <span>Simulated wallet checkout</span>
                 </button>
@@ -4465,10 +4461,65 @@ function openChangePasswordModal() {
 }
 
 function openForgotPasswordModal() {
-    const overlay = createModal("RESET PASSWORD", "TERMINAL ONE ACCOUNT", `<div id="reset-message" class="terminal-message"></div><form id="forgot-form"><div class="terminal-form-group"><label>EMAIL</label><input id="forgot-email" type="email" required></div><button class="terminal-gold-button" type="submit">GENERATE RESET TOKEN</button></form><form id="reset-form" style="margin-top:18px;"><div class="terminal-form-group"><label>RESET TOKEN</label><input id="reset-token" required></div><div class="terminal-form-group"><label>NEW PASSWORD</label><input id="reset-new-password" type="password" minlength="6" required></div><button class="terminal-secondary-button" type="submit" style="width:100%;">RESET PASSWORD</button></form>`);
+    const overlay = createModal("RESET PASSWORD", "TERMINAL ONE ACCOUNT", `
+        <div id="reset-message" class="terminal-message"></div>
+        <form id="forgot-form">
+            <div class="terminal-form-group">
+                <label>EMAIL</label>
+                <input id="forgot-email" type="email" required>
+            </div>
+            <button class="terminal-gold-button" type="submit">SEND RESET CODE</button>
+        </form>
+        <form id="reset-form" style="margin-top:18px; display:none;">
+            <div class="terminal-form-group">
+                <label>CODE RECEIVED BY EMAIL</label>
+                <input id="reset-token" autocomplete="one-time-code" required>
+            </div>
+            <div class="terminal-form-group">
+                <label>NEW PASSWORD</label>
+                <input id="reset-new-password" type="password" minlength="6" required>
+            </div>
+            <button class="terminal-secondary-button" type="submit" style="width:100%;">RESET PASSWORD</button>
+        </form>`);
+
     const message = overlay.querySelector("#reset-message");
-    overlay.querySelector("#forgot-form").onsubmit = async (event) => { event.preventDefault(); try { const data = await apiRequest("/password/forgot", { method: "POST", body: JSON.stringify({ email: overlay.querySelector("#forgot-email").value }) }); if (data.demo_token) overlay.querySelector("#reset-token").value = data.demo_token; message.textContent = data.message; message.className = "terminal-message success"; } catch (error) { message.textContent = error.message; message.className = "terminal-message error"; } };
-    overlay.querySelector("#reset-form").onsubmit = async (event) => { event.preventDefault(); try { await apiRequest("/password/reset", { method: "POST", body: JSON.stringify({ token: overlay.querySelector("#reset-token").value, new_password: overlay.querySelector("#reset-new-password").value }) }); overlay.remove(); showToast("Password reset. You can sign in now.", "success"); openLoginModal(); } catch (error) { message.textContent = error.message; message.className = "terminal-message error"; } };
+    const forgotForm = overlay.querySelector("#forgot-form");
+    const resetForm = overlay.querySelector("#reset-form");
+
+    forgotForm.onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+            const data = await apiRequest("/password/forgot", {
+                method: "POST",
+                body: JSON.stringify({ email: overlay.querySelector("#forgot-email").value })
+            });
+            message.textContent = "If this email is registered, a reset code has been sent. Check your inbox and spam folder.";
+            message.className = "terminal-message success";
+            resetForm.style.display = "block";
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        }
+    };
+
+    resetForm.onsubmit = async (event) => {
+        event.preventDefault();
+        try {
+            await apiRequest("/password/reset", {
+                method: "POST",
+                body: JSON.stringify({
+                    token: overlay.querySelector("#reset-token").value.trim(),
+                    new_password: overlay.querySelector("#reset-new-password").value
+                })
+            });
+            overlay.remove();
+            showToast("Password reset. You can sign in now.", "success");
+            openLoginModal();
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        }
+    };
 }
 
 async function downloadAdminExport(resource) {
