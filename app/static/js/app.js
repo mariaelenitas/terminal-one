@@ -840,6 +840,8 @@ function injectFrontendStyles() {
         .admin-toolbar {
             display: flex;
             justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 10px;
             margin-bottom: 18px;
         }
 
@@ -898,6 +900,88 @@ function injectFrontendStyles() {
         .admin-product-actions {
             display: flex;
             gap: 8px;
+        }
+
+        .admin-customers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .admin-customer-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #292d31;
+            border-radius: 6px;
+            background: #0b0d0f;
+        }
+
+        .admin-customer-row.inactive {
+            opacity: 0.65;
+        }
+
+        .admin-customer-info h3 {
+            margin: 0 0 6px;
+            color: #f3f3f3;
+            font-size: 13px;
+        }
+
+        .admin-customer-meta {
+            color: #aeb3b7;
+            font-size: 10px;
+            line-height: 1.7;
+        }
+
+        .admin-customer-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 7px;
+        }
+
+        .admin-customer-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin-top: 9px;
+        }
+
+        .admin-customer-badge {
+            padding: 4px 7px;
+            border: 1px solid #34383c;
+            border-radius: 20px;
+            color: #c5c8cb;
+            font-size: 8px;
+            font-weight: 800;
+            letter-spacing: 0.4px;
+        }
+
+        .admin-customer-badge.admin {
+            border-color: rgba(232, 173, 52, 0.4);
+            color: #e8ad34;
+        }
+
+        .admin-customer-badge.active {
+            border-color: rgba(117, 207, 69, 0.35);
+            color: #9ee176;
+        }
+
+        .admin-customer-badge.inactive {
+            border-color: rgba(227, 77, 67, 0.35);
+            color: #ff8179;
+        }
+
+        .admin-customer-search {
+            flex: 1;
+            min-width: 220px;
+            border: 1px solid #34383c;
+            border-radius: 5px;
+            background: #111315;
+            color: #f3f3f3;
+            padding: 11px 12px;
         }
 
         .admin-empty-state {
@@ -1531,6 +1615,24 @@ async function loginUser(email, password) {
     await updateCartCount();
 }
 
+async function registerUser(userData) {
+    const response = await fetch("/users/", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(userData)
+    });
+
+    const data = await readResponseData(response);
+
+    if (!response.ok) {
+        throw new Error(getErrorMessage(data, "Account creation failed"));
+    }
+
+    return data;
+}
+
 function openLoginModal() {
     const existing = document.querySelector(".terminal-modal-overlay");
     if (existing) {
@@ -1552,12 +1654,21 @@ function openLoginModal() {
                     <input id="login-password" type="password" autocomplete="current-password" required>
                 </div>
                 <button class="terminal-gold-button" type="submit">SIGN IN</button>
+                <button id="open-register-button" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                    CREATE A NEW ACCOUNT
+                </button>
             </form>
         `
     );
 
     const form = overlay.querySelector("#login-form");
     const message = overlay.querySelector("#login-message");
+    const registerButton = overlay.querySelector("#open-register-button");
+
+    registerButton.addEventListener("click", () => {
+        overlay.remove();
+        openRegisterModal();
+    });
 
     form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -1580,6 +1691,130 @@ function openLoginModal() {
         } finally {
             button.disabled = false;
             button.textContent = "SIGN IN";
+        }
+    });
+}
+
+function openRegisterModal() {
+    const existing = document.querySelector(".terminal-modal-overlay");
+    if (existing) {
+        existing.remove();
+    }
+
+    const overlay = createModal(
+        "CREATE ACCOUNT",
+        "JOIN TERMINAL ONE",
+        `
+            <div id="register-message" class="terminal-message"></div>
+            <form id="register-form">
+                <div class="terminal-form-group">
+                    <label>FULL NAME</label>
+                    <input id="register-name" type="text" autocomplete="name" minlength="2" required>
+                </div>
+
+                <div class="terminal-form-group">
+                    <label>EMAIL</label>
+                    <input id="register-email" type="email" autocomplete="email" required>
+                </div>
+
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PASSWORD</label>
+                        <input id="register-password" type="password" autocomplete="new-password" minlength="6" required>
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>CONFIRM PASSWORD</label>
+                        <input id="register-password-confirm" type="password" autocomplete="new-password" minlength="6" required>
+                    </div>
+                </div>
+
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PHONE</label>
+                        <input id="register-phone" type="tel" autocomplete="tel">
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>COUNTRY</label>
+                        <input id="register-country" type="text" autocomplete="country-name">
+                    </div>
+                </div>
+
+                <div class="terminal-form-group">
+                    <label>ADDRESS</label>
+                    <input id="register-address" type="text" autocomplete="street-address">
+                </div>
+
+                <button class="terminal-gold-button" type="submit">CREATE ACCOUNT</button>
+                <button id="back-to-login-button" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">
+                    BACK TO SIGN IN
+                </button>
+            </form>
+        `
+    );
+
+    const form = overlay.querySelector("#register-form");
+    const message = overlay.querySelector("#register-message");
+    const backButton = overlay.querySelector("#back-to-login-button");
+
+    backButton.addEventListener("click", () => {
+        overlay.remove();
+        openLoginModal();
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        message.textContent = "";
+        message.className = "terminal-message";
+
+        const name = overlay.querySelector("#register-name").value.trim();
+        const email = overlay.querySelector("#register-email").value.trim().toLowerCase();
+        const password = overlay.querySelector("#register-password").value;
+        const passwordConfirm = overlay.querySelector("#register-password-confirm").value;
+        const phone = overlay.querySelector("#register-phone").value.trim();
+        const country = overlay.querySelector("#register-country").value.trim();
+        const address = overlay.querySelector("#register-address").value.trim();
+
+        if (name.length < 2) {
+            message.textContent = "Please enter your full name.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        if (password.length < 6) {
+            message.textContent = "Password must contain at least 6 characters.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        if (password !== passwordConfirm) {
+            message.textContent = "Passwords do not match.";
+            message.className = "terminal-message error";
+            return;
+        }
+
+        const button = form.querySelector("button[type='submit']");
+        button.disabled = true;
+        button.textContent = "CREATING ACCOUNT...";
+
+        try {
+            await registerUser({
+                name,
+                email,
+                password,
+                phone: phone || null,
+                country: country || null,
+                address: address || null
+            });
+
+            await loginUser(email, password);
+            overlay.remove();
+            showToast("Account created successfully. Welcome to Terminal One!", "success");
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            button.disabled = false;
+            button.textContent = "CREATE ACCOUNT";
         }
     });
 }
@@ -2970,6 +3205,340 @@ async function openAdminOrdersModal() {
     await loadAdminOrdersView();
 }
 
+async function getAdminCustomers() {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch("/users/", {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readResponseData(response);
+
+    if (response.status === 401) {
+        clearToken();
+        updateAccountInterface();
+        throw new Error("Your session has expired. Please sign in again.");
+    }
+    if (response.status === 403) throw new Error("Admin access required.");
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not load customers"));
+    return data;
+}
+
+async function updateAdminCustomer(customerId, customerData) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}`, {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(customerData)
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not update customer"));
+    return data;
+}
+
+async function updateAdminCustomerActivation(customerId, isActive) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}/activation`, {
+        method: "PATCH",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ is_active: isActive })
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not update account status"));
+    return data;
+}
+
+async function getAdminCustomerOrders(customerId) {
+    const token = getToken();
+    if (!token) throw new Error("Please sign in again.");
+
+    const response = await fetch(`/users/admin/${customerId}/orders`, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await readResponseData(response);
+    if (!response.ok) throw new Error(getErrorMessage(data, "Could not load customer orders"));
+    return data;
+}
+
+function openAdminCustomerEditModal(customer) {
+    const overlay = createModal(
+        "EDIT CUSTOMER",
+        "TERMINAL ONE ADMIN",
+        `
+            <div id="admin-customer-edit-message" class="terminal-message"></div>
+            <form id="admin-customer-edit-form">
+                <div class="terminal-form-group">
+                    <label>FULL NAME</label>
+                    <input id="admin-customer-name" type="text" value="${escapeHtml(customer.name)}" required>
+                </div>
+                <div class="terminal-form-group">
+                    <label>EMAIL</label>
+                    <input id="admin-customer-email" type="email" value="${escapeHtml(customer.email)}" required>
+                </div>
+                <div class="terminal-form-row">
+                    <div class="terminal-form-group">
+                        <label>PHONE</label>
+                        <input id="admin-customer-phone" type="text" value="${escapeHtml(customer.phone || "")}">
+                    </div>
+                    <div class="terminal-form-group">
+                        <label>COUNTRY</label>
+                        <input id="admin-customer-country" type="text" value="${escapeHtml(customer.country || "")}">
+                    </div>
+                </div>
+                <div class="terminal-form-group">
+                    <label>ADDRESS</label>
+                    <input id="admin-customer-address" type="text" value="${escapeHtml(customer.address || "")}">
+                </div>
+                <div class="terminal-form-group">
+                    <label>ACCOUNT ROLE</label>
+                    <select id="admin-customer-role">
+                        <option value="customer" ${customer.is_admin ? "" : "selected"}>CUSTOMER</option>
+                        <option value="admin" ${customer.is_admin ? "selected" : ""}>ADMIN</option>
+                    </select>
+                </div>
+                <button class="terminal-gold-button" type="submit">SAVE CUSTOMER</button>
+                <button id="admin-customer-edit-back" class="terminal-secondary-button" type="button" style="width:100%; margin-top:10px;">BACK TO CUSTOMERS</button>
+            </form>
+        `
+    );
+
+    const form = overlay.querySelector("#admin-customer-edit-form");
+    const message = overlay.querySelector("#admin-customer-edit-message");
+
+    overlay.querySelector("#admin-customer-edit-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const button = form.querySelector("button[type='submit']");
+        button.disabled = true;
+        button.textContent = "SAVING...";
+        message.className = "terminal-message";
+
+        try {
+            const updated = await updateAdminCustomer(customer.id, {
+                name: overlay.querySelector("#admin-customer-name").value.trim(),
+                email: overlay.querySelector("#admin-customer-email").value.trim(),
+                phone: overlay.querySelector("#admin-customer-phone").value.trim() || null,
+                country: overlay.querySelector("#admin-customer-country").value.trim() || null,
+                address: overlay.querySelector("#admin-customer-address").value.trim() || null,
+                is_admin: overlay.querySelector("#admin-customer-role").value === "admin"
+            });
+
+            if (currentUser && updated.id === currentUser.id) {
+                currentUser = { ...currentUser, ...updated };
+                updateAccountInterface();
+            }
+
+            overlay.remove();
+            showToast("Customer updated successfully.", "success");
+            openAdminCustomersModal();
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            button.disabled = false;
+            button.textContent = "SAVE CUSTOMER";
+        }
+    });
+}
+
+async function openAdminCustomerOrdersModal(customer) {
+    const overlay = createModal(
+        `CUSTOMER ORDERS`,
+        `${customer.name} · TERMINAL ONE ADMIN`,
+        `
+            <div id="admin-customer-orders-message" class="terminal-message"></div>
+            <div class="admin-toolbar">
+                <button id="admin-customer-orders-back" class="terminal-secondary-button" type="button">BACK TO CUSTOMERS</button>
+            </div>
+            <div id="admin-customer-orders-list" class="admin-orders-list">
+                <div class="admin-empty-state">Loading customer orders...</div>
+            </div>
+        `
+    );
+
+    overlay.querySelector("#admin-customer-orders-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
+
+    const list = overlay.querySelector("#admin-customer-orders-list");
+    const message = overlay.querySelector("#admin-customer-orders-message");
+
+    try {
+        const data = await getAdminCustomerOrders(customer.id);
+        list.innerHTML = "";
+
+        if (!data.orders.length) {
+            list.innerHTML = `<div class="admin-empty-state">This customer has no orders.</div>`;
+            return;
+        }
+
+        data.orders.forEach((order) => {
+            const row = document.createElement("div");
+            row.className = "admin-order-row";
+            row.innerHTML = `
+                <div class="admin-order-top">
+                    <div class="admin-order-customer">
+                        <h3>ORDER #${Number(order.id)}</h3>
+                        <div class="admin-order-meta">${formatDate(order.created_at)} · ${formatMoney(order.total)} · ${escapeHtml(String(order.status).toUpperCase())}</div>
+                    </div>
+                </div>
+                ${getAdminOrderItemsHtml(order)}
+            `;
+            list.appendChild(row);
+        });
+    } catch (error) {
+        list.innerHTML = "";
+        message.textContent = error.message;
+        message.className = "terminal-message error";
+    }
+}
+
+async function openAdminCustomersModal() {
+    if (!currentUser || !currentUser.is_admin) {
+        openLoginModal();
+        return;
+    }
+
+    const overlay = createModal(
+        "CUSTOMER MANAGEMENT",
+        "TERMINAL ONE ADMIN",
+        `
+            <div id="admin-customers-message" class="terminal-message"></div>
+            <div class="admin-toolbar">
+                <input id="admin-customer-search" class="admin-customer-search" type="search" placeholder="Search by name or email...">
+                <button id="admin-customers-back" class="terminal-secondary-button" type="button">PRODUCT MANAGEMENT</button>
+                <button id="admin-customers-refresh" class="terminal-gold-button" type="button">REFRESH CUSTOMERS</button>
+            </div>
+            <div id="admin-customers-list" class="admin-customers-list">
+                <div class="admin-empty-state">Loading customers...</div>
+            </div>
+        `
+    );
+
+    const list = overlay.querySelector("#admin-customers-list");
+    const message = overlay.querySelector("#admin-customers-message");
+    const search = overlay.querySelector("#admin-customer-search");
+    const refresh = overlay.querySelector("#admin-customers-refresh");
+    let customers = [];
+
+    overlay.querySelector("#admin-customers-back").addEventListener("click", () => {
+        overlay.remove();
+        openAdminManagementModal();
+    });
+
+    function renderCustomers() {
+        const term = search.value.trim().toLowerCase();
+        const filtered = customers.filter((customer) => {
+            return String(customer.name || "").toLowerCase().includes(term) ||
+                String(customer.email || "").toLowerCase().includes(term);
+        });
+
+        list.innerHTML = "";
+
+        if (!filtered.length) {
+            list.innerHTML = `<div class="admin-empty-state">No customers found.</div>`;
+            return;
+        }
+
+        filtered.forEach((customer) => {
+            const isActive = customer.is_active !== false;
+            const row = document.createElement("div");
+            row.className = `admin-customer-row ${isActive ? "" : "inactive"}`;
+            row.innerHTML = `
+                <div class="admin-customer-info">
+                    <h3>${escapeHtml(customer.name)} · #${Number(customer.id)}</h3>
+                    <div class="admin-customer-meta">
+                        ${escapeHtml(customer.email)}<br>
+                        ${escapeHtml(customer.phone || "No phone")} · ${escapeHtml(customer.country || "No country")}<br>
+                        ${escapeHtml(customer.address || "No address")}<br>
+                        Registered: ${formatDate(customer.created_at)} · Orders: ${Number(customer.total_orders || 0)} · Spent: ${formatMoney(customer.total_spent)}
+                    </div>
+                    <div class="admin-customer-badges">
+                        <span class="admin-customer-badge ${customer.is_admin ? "admin" : ""}">${customer.is_admin ? "ADMIN" : "CUSTOMER"}</span>
+                        <span class="admin-customer-badge ${isActive ? "active" : "inactive"}">${isActive ? "ACTIVE" : "INACTIVE"}</span>
+                    </div>
+                </div>
+                <div class="admin-customer-actions">
+                    <button class="terminal-secondary-button customer-orders-button" type="button">ORDERS</button>
+                    <button class="terminal-secondary-button customer-edit-button" type="button">EDIT</button>
+                    <button class="${isActive ? "terminal-danger-button" : "terminal-gold-button"} customer-status-button" type="button" style="width:auto;">${isActive ? "DEACTIVATE" : "ACTIVATE"}</button>
+                </div>
+            `;
+
+            row.querySelector(".customer-orders-button").addEventListener("click", () => {
+                overlay.remove();
+                openAdminCustomerOrdersModal(customer);
+            });
+
+            row.querySelector(".customer-edit-button").addEventListener("click", () => {
+                overlay.remove();
+                openAdminCustomerEditModal(customer);
+            });
+
+            const statusButton = row.querySelector(".customer-status-button");
+            statusButton.addEventListener("click", async () => {
+                const action = isActive ? "deactivate" : "activate";
+                const confirmed = window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} ${customer.name}?`);
+                if (!confirmed) return;
+
+                statusButton.disabled = true;
+                statusButton.textContent = "SAVING...";
+
+                try {
+                    await updateAdminCustomerActivation(customer.id, !isActive);
+                    showToast(`Customer ${action}d successfully.`, "success");
+                    await loadCustomers();
+                } catch (error) {
+                    message.textContent = error.message;
+                    message.className = "terminal-message error";
+                    statusButton.disabled = false;
+                    statusButton.textContent = isActive ? "DEACTIVATE" : "ACTIVATE";
+                }
+            });
+
+            list.appendChild(row);
+        });
+    }
+
+    async function loadCustomers() {
+        message.className = "terminal-message";
+        list.innerHTML = `<div class="admin-empty-state">Loading customers...</div>`;
+        refresh.disabled = true;
+        refresh.textContent = "LOADING...";
+
+        try {
+            customers = await getAdminCustomers();
+            renderCustomers();
+        } catch (error) {
+            list.innerHTML = "";
+            message.textContent = error.message;
+            message.className = "terminal-message error";
+        } finally {
+            refresh.disabled = false;
+            refresh.textContent = "REFRESH CUSTOMERS";
+        }
+    }
+
+    search.addEventListener("input", renderCustomers);
+    refresh.addEventListener("click", loadCustomers);
+    await loadCustomers();
+}
+
 async function openAdminManagementModal() {
     if (!currentUser || !currentUser.is_admin) {
         openLoginModal();
@@ -2982,6 +3551,9 @@ async function openAdminManagementModal() {
         `
             <div id="admin-management-message" class="terminal-message"></div>
             <div class="admin-toolbar">
+                <button id="admin-manage-customers-button" class="terminal-secondary-button" type="button">
+                    MANAGE CUSTOMERS
+                </button>
                 <button id="admin-manage-orders-button" class="terminal-secondary-button" type="button">
                     MANAGE ORDERS
                 </button>
@@ -2999,6 +3571,12 @@ async function openAdminManagementModal() {
     const productsList = overlay.querySelector("#admin-products-list");
     const addButton = overlay.querySelector("#admin-add-product-button");
     const ordersButton = overlay.querySelector("#admin-manage-orders-button");
+    const customersButton = overlay.querySelector("#admin-manage-customers-button");
+
+    customersButton.addEventListener("click", () => {
+        overlay.remove();
+        openAdminCustomersModal();
+    });
 
     ordersButton.addEventListener("click", () => {
         overlay.remove();

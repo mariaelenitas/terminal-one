@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String, Boolean
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
 
 from app.database import Base
 
@@ -16,4 +18,6 @@ class User(Base):
     country = Column(String)
     address = Column(String)
 
-    is_admin = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
